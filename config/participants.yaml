@@ -1,0 +1,23 @@
+participants:
+  - id: "P001"
+    name: "NomePart1"
+    folder: "P001_NomePart1"
+    age: null
+    sex: null          # "M" or "F"
+    height_cm: null
+    weight_kg: null
+    hr_max: null       # beats per minute — null → estimated from age (220-age)
+    hr_rest: null
+    vo2max: null
+
+  # ── Add more participants below following the same schema ─────────────────
+  # - id: "P002"
+  #   name: "NomePart2"
+  #   folder: "P002_NomePart2"
+  #   age: 28
+  #   sex: "F"
+  #   height_cm: 165
+  #   weight_kg: 62
+  #   hr_max: null
+  #   hr_rest: 58
+  #   vo2max: null
