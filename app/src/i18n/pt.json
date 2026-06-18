@@ -1,0 +1,64 @@
+{
+  "app_title": "Neroes HRV",
+  "nav": {
+    "back": "Voltar",
+    "retry": "Tentar novamente"
+  },
+  "lang": {
+    "pt": "PT",
+    "en": "EN"
+  },
+  "participant_select": {
+    "title": "Selecionar Participante",
+    "subtitle": "Toque no seu nome para iniciar",
+    "loading": "A carregar participantes...",
+    "error": "Erro ao carregar participantes",
+    "retry": "Tentar novamente"
+  },
+  "ble": {
+    "idle": "Não ligado",
+    "scanning": "A procurar banda...",
+    "connecting": "A ligar...",
+    "connected": "Ligado",
+    "reconnecting": "A religar...",
+    "error": "Erro de ligação",
+    "permission_denied": "Permissão de Bluetooth negada",
+    "retry": "Reconectar",
+    "connect_btn": "Ligar à banda",
+    "no_device_id": "Banda não configurada",
+    "open_settings": "Abrir Definições da app"
+  },
+  "session": {
+    "start": "INICIAR SESSÃO",
+    "cancel": "Cancelar / Reiniciar",
+    "uploading": "A enviar dados...",
+    "finish": "Terminar e guardar",
+    "done": "Sessão guardada ✓",
+    "new": "Nova Sessão",
+    "hint": "5 minutos em repouso",
+    "ble_required": "Ligue a banda para iniciar"
+  },
+  "recording": {
+    "title": "Gravação em curso",
+    "live_hrv": "lnRMSSD ao vivo"
+  },
+  "stats": {
+    "n_rr": "Batimentos",
+    "hr_mean": "FC média",
+    "lnrmssd": "lnRMSSD",
+    "quality": "Qualidade"
+  },
+  "chart": {
+    "min": "Min",
+    "avg": "Méd",
+    "max": "Max",
+    "waiting": "À espera de dados do sensor..."
+  },
+  "error": {
+    "upload_failed": "Erro ao enviar dados",
+    "ble_unavailable": "Bluetooth não disponível neste dispositivo",
+    "device_not_found": "Banda Polar H10 não encontrada. Confirme que a banda está ligada e próxima.",
+    "permission_denied": "A app não tem permissão para usar o Bluetooth.",
+    "permission_hint": "Vai a Definições → Aplicações → Neroes HRV → Permissões → Bluetooth e seleciona Permitir. Depois volta à app e liga a banda."
+  }
+}

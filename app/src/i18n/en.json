@@ -1,0 +1,64 @@
+{
+  "app_title": "Neroes HRV",
+  "nav": {
+    "back": "Back",
+    "retry": "Retry"
+  },
+  "lang": {
+    "pt": "PT",
+    "en": "EN"
+  },
+  "participant_select": {
+    "title": "Select Participant",
+    "subtitle": "Tap your name to begin",
+    "loading": "Loading participants...",
+    "error": "Error loading participants",
+    "retry": "Try again"
+  },
+  "ble": {
+    "idle": "Not connected",
+    "scanning": "Searching for band...",
+    "connecting": "Connecting...",
+    "connected": "Connected",
+    "reconnecting": "Reconnecting...",
+    "error": "Connection error",
+    "permission_denied": "Bluetooth permission denied",
+    "retry": "Reconnect",
+    "connect_btn": "Connect band",
+    "no_device_id": "Band not configured",
+    "open_settings": "Open app settings"
+  },
+  "session": {
+    "start": "START SESSION",
+    "cancel": "Cancel / Reset",
+    "uploading": "Uploading data...",
+    "finish": "Finish and save",
+    "done": "Session saved ✓",
+    "new": "New Session",
+    "hint": "5 minutes at rest",
+    "ble_required": "Connect the band to start"
+  },
+  "recording": {
+    "title": "Recording in progress",
+    "live_hrv": "Live lnRMSSD"
+  },
+  "stats": {
+    "n_rr": "Beats",
+    "hr_mean": "Mean HR",
+    "lnrmssd": "lnRMSSD",
+    "quality": "Quality"
+  },
+  "chart": {
+    "min": "Min",
+    "avg": "Avg",
+    "max": "Max",
+    "waiting": "Waiting for sensor data..."
+  },
+  "error": {
+    "upload_failed": "Error uploading data",
+    "ble_unavailable": "Bluetooth not available on this device",
+    "device_not_found": "Polar H10 band not found. Make sure the band is turned on and nearby.",
+    "permission_denied": "The app does not have permission to use Bluetooth.",
+    "permission_hint": "Go to Settings → Apps → Neroes HRV → Permissions → Bluetooth and select Allow. Then return to the app and connect the band."
+  }
+}

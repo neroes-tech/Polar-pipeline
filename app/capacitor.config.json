@@ -1,0 +1,23 @@
+{
+  "appId": "com.neroes.hrv",
+  "appName": "Neroes HRV",
+  "webDir": "dist",
+  "plugins": {
+    "BluetoothLe": {
+      "displayStrings": {
+        "scanning": "A procurar dispositivos BLE...",
+        "cancel": "Cancelar",
+        "availableDevices": "Bandas disponíveis",
+        "noDeviceFound": "Nenhum dispositivo encontrado"
+      }
+    }
+  },
+  "android": {
+    "allowMixedContent": false,
+    "loggingBehavior": "debug",
+    "minWebViewVersion": 87
+  },
+  "ios": {
+    "contentInset": "automatic"
+  }
+}
