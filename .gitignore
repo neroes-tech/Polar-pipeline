@@ -30,3 +30,8 @@ env/
 # OS
 .DS_Store
 Thumbs.db
+
+# Secrets — never commit credentials
+.env
+config/secrets.yaml
+config/tokens.yaml
