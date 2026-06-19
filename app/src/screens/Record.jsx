@@ -8,6 +8,7 @@ import { saveSessionLocally, markSynced } from '../lib/offlineQueue.js'
 import { EcgRecorder } from '../lib/ecgRecorder.js'
 import { saveActiveSession, clearActiveSession } from '../lib/sessionPersistence.js'
 import { startForegroundService, stopForegroundService } from '../lib/foregroundService.js'
+import { primeAudioContext, playSessionEndAlert } from '../lib/sessionAlert.js'
 import EcgCanvas from '../components/EcgCanvas.jsx'
 import BigButton from '../components/BigButton.jsx'
 import LanguageToggle from '../components/LanguageToggle.jsx'
@@ -263,6 +264,7 @@ export default function Record({ participant, onBack }) {
 
   // ── Handlers ─────────────────────────────────────────────
   async function selectAndStart(mode) {
+    primeAudioContext()
     sessionModeRef.current = mode
     setSessionMode(mode)
     await startRecording()
@@ -365,6 +367,32 @@ export default function Record({ participant, onBack }) {
     setUploadError(null)
   }
 
+  // Returns to idle after a completed session — no logout, BLE stays connected.
+  function resetToIdle() {
+    setPhase('idle')
+    setSessionMode(null)
+    sessionModeRef.current = null
+    autoStoppedRef.current = false
+    sessionStartWallClock.current = null
+    ecgSettlingRef.current = true
+    setElapsed(0)
+    setNRr(0)
+    setLiveLnRmssd(null)
+    setLiveHrv({})
+    setHrBpm(null)
+    setChartData([])
+    setHrStats({ min: null, avg: null, max: null })
+    setUploadError(null)
+    setUploadStatus(null)
+    setSessionSummary(null)
+    setEcgActive(false)
+    setEcgSettling(true)
+    setEcgCount(0)
+    ecgRecRef.current = null
+    recorderRef.current = null
+    clearActiveSession()
+  }
+
   async function stopAndUpload() {
     const recorder = recorderRef.current
     if (!recorder) return
@@ -433,6 +461,9 @@ export default function Record({ participant, onBack }) {
       setPhase('recording')
       return
     }
+
+    // Beep + vibrate only on auto-stop (5-min session reached its target)
+    if (autoStoppedRef.current) playSessionEndAlert()
 
     setSessionSummary({
       n_rr:     metrics.n_rr,
@@ -730,7 +761,7 @@ export default function Record({ participant, onBack }) {
             {/* Summary metrics */}
             <SessionSummary summary={sessionSummary} t={t} />
 
-            <BigButton onClick={onBack}>
+            <BigButton onClick={resetToIdle}>
               {t('session.new')}
             </BigButton>
           </div>
