@@ -9,6 +9,7 @@ import { EcgRecorder } from '../lib/ecgRecorder.js'
 import { saveActiveSession, clearActiveSession } from '../lib/sessionPersistence.js'
 import { startForegroundService, stopForegroundService } from '../lib/foregroundService.js'
 import { primeAudioContext, playSessionEndAlert } from '../lib/sessionAlert.js'
+import { activateKeepAwake, releaseKeepAwake } from '../lib/keepAwake.js'
 import EcgCanvas from '../components/EcgCanvas.jsx'
 import BigButton from '../components/BigButton.jsx'
 import LanguageToggle from '../components/LanguageToggle.jsx'
@@ -257,6 +258,10 @@ export default function Record({ participant, onBack }) {
       if (phase === 'recording' && bleStatus !== 'connected' && bleStatus !== 'connecting' && bleStatus !== 'reconnecting') {
         connectBle()
       }
+      // Re-request wake lock: the Web Wake Lock API auto-releases when the page
+      // loses visibility (iOS/browser behaviour), so we must re-acquire it here.
+      // The native plugin (Android APK) is idempotent — safe to call again.
+      if (phase === 'recording') activateKeepAwake()
     }
     document.addEventListener('visibilitychange', onVisibilityChange)
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -331,6 +336,10 @@ export default function Record({ participant, onBack }) {
     // Start Android foreground service (keeps process alive in background; no-op on web/iOS)
     startForegroundService(sessionModeRef.current)
 
+    // Prevent screen sleep while recording (native plugin on Android/iOS app;
+    // Web Wake Lock API as fallback for Bluefy/iOS 16.4+)
+    activateKeepAwake()
+
     // ECG — always attempted; isolated so failure never affects HR/RR recording
     const ecgRec = new EcgRecorder()
     ecgRecRef.current   = ecgRec
@@ -352,6 +361,7 @@ export default function Record({ participant, onBack }) {
     sessionStartWallClock.current = null
     clearActiveSession()
     stopForegroundService()
+    releaseKeepAwake()
     if (ecgActive) {
       bleRef.current?.stopEcg().catch(() => {})
       ecgRecRef.current = null
@@ -400,6 +410,7 @@ export default function Record({ participant, onBack }) {
     sessionStartWallClock.current = null
     clearActiveSession()
     stopForegroundService()
+    releaseKeepAwake()
     setPhase('uploading')
     setUploadError(null)
 
