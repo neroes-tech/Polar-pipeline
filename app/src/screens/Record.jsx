@@ -68,7 +68,7 @@ function HrDisplay({ bpm }) {
       <div style={{
         fontSize: '4.2rem',
         fontWeight: 800,
-        color: 'var(--aurora-1)',
+        color: 'var(--teal-2)',
         fontVariantNumeric: 'tabular-nums',
         lineHeight: 1,
         letterSpacing: '-.02em',
@@ -141,7 +141,7 @@ function ModeCard({ icon, title, desc, onClick }) {
     >
       <div style={{
         flexShrink: 0, width: 52, height: 52, borderRadius: '50%',
-        background: 'var(--aurora-soft)',
+        background: 'var(--bg-teal-soft)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         {icon}
@@ -449,7 +449,7 @@ export default function Record({ participant, onBack }) {
           style={{
             display: 'flex', alignItems: 'center', gap: 4,
             background: 'transparent', border: 'none',
-            color: 'var(--aurora-1)', fontSize: '.95rem', fontWeight: 700,
+            color: 'var(--teal-2)', fontSize: '.95rem', fontWeight: 700,
             padding: '6px 0',
           }}
         >
@@ -498,9 +498,9 @@ export default function Record({ participant, onBack }) {
                     desc={t('session.mode_rest_desc')}
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-                        <circle cx="12" cy="12" r="9" stroke="var(--aurora-1)" strokeWidth="2"/>
-                        <path d="M12 7v5l3.5 3.5" stroke="var(--aurora-1)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                        <path d="M12 3v1M12 20v1M3 12h1M20 12h1" stroke="var(--aurora-1)" strokeWidth="1.5" strokeLinecap="round"/>
+                        <circle cx="12" cy="12" r="9" stroke="var(--teal-2)" strokeWidth="2"/>
+                        <path d="M12 7v5l3.5 3.5" stroke="var(--teal-2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M12 3v1M12 20v1M3 12h1M20 12h1" stroke="var(--teal-2)" strokeWidth="1.5" strokeLinecap="round"/>
                       </svg>
                     }
                   />
@@ -510,8 +510,8 @@ export default function Record({ participant, onBack }) {
                     desc={t('session.mode_free_desc')}
                     icon={
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
-                        <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4z" stroke="var(--aurora-1)" strokeWidth="2" strokeLinejoin="round"/>
-                        <path d="M12 12c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z" stroke="var(--aurora-1)" strokeWidth="2" strokeLinejoin="round"/>
+                        <path d="M12 12c-2-2.5-4-4-6-4a4 4 0 0 0 0 8c2 0 4-1.5 6-4z" stroke="var(--teal-2)" strokeWidth="2" strokeLinejoin="round"/>
+                        <path d="M12 12c2 2.5 4 4 6 4a4 4 0 0 0 0-8c-2 0-4 1.5-6 4z" stroke="var(--teal-2)" strokeWidth="2" strokeLinejoin="round"/>
                       </svg>
                     }
                   />
@@ -522,15 +522,15 @@ export default function Record({ participant, onBack }) {
                 {/* Mode badge — tap to change */}
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: 'var(--aurora-soft)', borderRadius: 'var(--r-md)',
+                  background: 'var(--bg-teal-soft)', borderRadius: 'var(--r-md)',
                   padding: '10px 16px', marginBottom: 4,
                 }} className="animate-fade-up">
-                  <span style={{ color: 'var(--aurora-1)', fontWeight: 700, fontSize: '.9rem' }}>
+                  <span style={{ color: 'var(--teal-2)', fontWeight: 700, fontSize: '.9rem' }}>
                     {sessionMode === 'rest_5min' ? t('session.mode_rest') : t('session.mode_free')}
                   </span>
                   <button
                     onClick={() => setSessionMode(null)}
-                    style={{ background: 'none', border: 'none', color: 'var(--aurora-1)', fontSize: '.85rem', fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}
+                    style={{ background: 'none', border: 'none', color: 'var(--teal-2)', fontSize: '.85rem', fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}
                   >
                     {t('session.mode_change')}
                   </button>
@@ -588,7 +588,7 @@ export default function Record({ participant, onBack }) {
                         type="checkbox"
                         checked={ecgEnabled}
                         onChange={e => setEcgEnabled(e.target.checked)}
-                        style={{ width: 20, height: 20, accentColor: 'var(--aurora-1)', flexShrink: 0 }}
+                        style={{ width: 20, height: 20, accentColor: 'var(--teal-2)', flexShrink: 0 }}
                       />
                     </label>
                   )}
@@ -629,7 +629,7 @@ export default function Record({ participant, onBack }) {
                   ...(timerDanger ? { color: 'var(--error)' }
                     : timerWarning ? { color: 'var(--warning)' }
                     : {
-                        background: 'var(--aurora-gradient)',
+                        background: 'var(--brand-gradient)',
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent',
                         backgroundClip: 'text',
@@ -660,10 +660,10 @@ export default function Record({ participant, onBack }) {
               }}>
                 <span style={{
                   width: 7, height: 7, borderRadius: '50%',
-                  background: '#38BDF8', flexShrink: 0,
+                  background: '#2BBDBD', flexShrink: 0,
                   animation: 'pulse-dot 1.2s infinite',
                 }} />
-                <span style={{ color: 'rgba(56,189,248,0.85)', fontSize: '.72rem', fontWeight: 700 }}>
+                <span style={{ color: 'rgba(43,189,189,0.85)', fontSize: '.72rem', fontWeight: 700 }}>
                   {t('ecg.samples', { count: ecgCount.toLocaleString() })}
                 </span>
               </div>

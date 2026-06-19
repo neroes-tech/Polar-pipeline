@@ -2,11 +2,11 @@ import { useEffect, useRef } from 'react'
 import { N_DISPLAY } from '../lib/ecgRecorder.js'
 
 const CANVAS_H    = 200
-const TRACE_COLOR = '#38BDF8'
+const TRACE_COLOR = '#2BBDBD'
 const BG_COLOR    = '#060D1A'
 const GRID_MAJOR  = 'rgba(220,50,50,0.12)'
 const GRID_MINOR  = 'rgba(220,50,50,0.05)'
-const ZERO_COLOR  = 'rgba(56,189,248,0.18)'
+const ZERO_COLOR  = 'rgba(43,189,189,0.18)'
 
 /**
  * EcgCanvas — premium real-time scrolling ECG trace.
@@ -139,15 +139,15 @@ export default function EcgCanvas({ ecgRef, isSettling }) {
       overflow: 'hidden',
       marginBottom: 16,
       background: BG_COLOR,
-      border: '1px solid rgba(56,189,248,0.18)',
-      boxShadow: '0 0 28px rgba(56,189,248,0.07)',
+      border: '1px solid rgba(43,189,189,0.18)',
+      boxShadow: '0 0 28px rgba(43,189,189,0.07)',
     }}>
       <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: CANVAS_H }} />
 
       {/* ECG label */}
       <div style={{
         position: 'absolute', top: 8, left: 12,
-        color: 'rgba(56,189,248,0.6)', fontSize: '.63rem', fontWeight: 800,
+        color: 'rgba(43,189,189,0.6)', fontSize: '.63rem', fontWeight: 800,
         letterSpacing: '.12em',
       }}>
         ECG · 130 Hz

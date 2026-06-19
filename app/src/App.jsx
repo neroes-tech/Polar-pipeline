@@ -27,7 +27,7 @@ function LoadingScreen() {
   return (
     <div style={{
       minHeight: '100dvh',
-      background: 'var(--aurora-gradient)',
+      background: 'var(--brand-gradient)',
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -38,7 +38,7 @@ function LoadingScreen() {
         <path d="M4 32 Q24 8 48 8 Q72 8 92 32 Q72 56 48 56 Q24 56 4 32Z"
               fill="rgba(255,255,255,.15)" stroke="rgba(255,255,255,.6)" strokeWidth="3"/>
         <circle cx="48" cy="32" r="11" fill="rgba(255,255,255,.9)"/>
-        <circle cx="48" cy="32" r="6" fill="#2B6CF4"/>
+        <circle cx="48" cy="32" r="6" fill="#2BBDBD"/>
         <polyline points="4,32 28,32 33,28 37,39 40,24 43,45 46,32 60,32 92,32"
                   fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>

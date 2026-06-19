@@ -45,8 +45,8 @@ export default function HrChart({ data, stats }) {
         <AreaChart data={data} margin={{ top: 4, right: 8, left: -22, bottom: 0 }}>
           <defs>
             <linearGradient id="hrFill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor="#2B6CF4" stopOpacity={0.18} />
-              <stop offset="95%" stopColor="#2B6CF4" stopOpacity={0}    />
+              <stop offset="5%"  stopColor="#2BBDBD" stopOpacity={0.18} />
+              <stop offset="95%" stopColor="#2BBDBD" stopOpacity={0}    />
             </linearGradient>
           </defs>
 
@@ -83,11 +83,11 @@ export default function HrChart({ data, stats }) {
           <Area
             type="monotone"
             dataKey="hr"
-            stroke="#2B6CF4"
+            stroke="#2BBDBD"
             strokeWidth={2.5}
             fill="url(#hrFill)"
             dot={false}
-            activeDot={{ r: 4, fill: '#2B6CF4', strokeWidth: 0 }}
+            activeDot={{ r: 4, fill: '#2BBDBD', strokeWidth: 0 }}
             isAnimationActive={false}
           />
         </AreaChart>

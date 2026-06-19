@@ -142,6 +142,15 @@ def build_master_short(
         hr = g["HR_bpm"].dropna()
         total = len(g)
         valid = len(hr)
+
+        # Approximate HRV from 1Hz HR (not true RMSSD — needs RR intervals for accuracy)
+        lnrmssd = np.nan
+        if len(hr) >= 2:
+            rr_approx = 60000.0 / hr
+            diffs = rr_approx.diff().dropna()
+            rmssd = np.sqrt((diffs ** 2).mean())
+            lnrmssd = float(np.log(rmssd)) if rmssd > 0 else np.nan
+
         return pd.Series(
             {
                 "FC_mean": hr.mean(),
@@ -150,6 +159,9 @@ def build_master_short(
                 "FC_min": hr.min(),
                 "FC_max": hr.max(),
                 "FC_range": hr.max() - hr.min(),
+                "HR_resting_mean": hr.mean(),
+                "lnRMSSD": round(lnrmssd, 3) if not np.isnan(lnrmssd) else np.nan,
+                "hrv_source": "bpm_estimated",
                 "duration_s": int(g["Time_s"].max()) if "Time_s" in g.columns else total,
                 "data_quality_pct": round(100.0 * valid / total, 2) if total else 0.0,
                 "calories": g["calories_meta"].iloc[0] if "calories_meta" in g.columns else np.nan,

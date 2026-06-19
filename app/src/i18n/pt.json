@@ -14,7 +14,8 @@
     "signing_in": "A entrar...",
     "show_password": "Mostrar palavra-passe",
     "hide_password": "Esconder palavra-passe",
-    "error_invalid": "Email ou palavra-passe incorretos"
+    "error_invalid": "Email ou palavra-passe incorretos",
+    "security_badge": "Autenticação segura · Supabase"
   },
   "lang": {
     "pt": "PT",

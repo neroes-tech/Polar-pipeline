@@ -1,37 +1,62 @@
-# Raw and processed data — never commit participant data
+# ══════════════════════════════════════════════════════════════
+#  Neroes Polar Pipeline — Root .gitignore
+#  Regra de ouro: em caso de dúvida, ignorar.
+# ══════════════════════════════════════════════════════════════
+
+# ── Secrets & credentials — NUNCA commitar ────────────────────
+config/secrets.yaml
+config/tokens.yaml
+.env
+app/.env
+app/.env.local
+app/.env.*.local
+
+# Keystore Android — vive APENAS na máquina Windows local
+app/android/keystore.properties
+neroes-release-keys/
+*.jks
+*.keystore
+
+# ── Participant data — RGPD: dados clínicos fora do repositório ─
 data/raw/
 data/processed/
-
-# Reports (generated artefacts)
 data/reports/
+# device_id = MAC address da banda Polar → identifica dispositivo → fora do repo
+config/participants.yaml
 
-# Python
+# ── Artefactos de build e dependências ────────────────────────
+app/node_modules/
+app/dist/
+node_modules/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
+*.egg-info/
+dist/
+build/
 
-# Jupyter
+# ── Pasta nativa Android ──────────────────────────────────────
+# Gerada localmente via "npx cap add android" + sync_to_windows.sh
+# Não necessária para deploy da PWA no Vercel
+app/android/
+.capacitor/
+
+# ── Python / Jupyter ──────────────────────────────────────────
 .ipynb_checkpoints/
 *.ipynb~
-
-# Virtual environments
 .venv/
 venv/
 env/
 
-# Editors
+# ── Editores & OS ─────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Secrets — never commit credentials
-.env
-config/secrets.yaml
-config/tokens.yaml
+# ── Scripts: seguros (lêem segredos via config/secrets.yaml) ──
+# scripts/ é rastreado — scripts não contêm chaves hardcoded

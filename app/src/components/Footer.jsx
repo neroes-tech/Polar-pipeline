@@ -7,7 +7,7 @@ export default function Footer() {
       flexWrap: 'wrap',
       gap: 6,
       padding: '11px 20px calc(16px + var(--safe-bottom))',
-      borderTop: '0.5px solid var(--border)',
+      borderTop: '1px solid var(--border)',
     }}>
       <img
         src="/logos/heal-me.png"

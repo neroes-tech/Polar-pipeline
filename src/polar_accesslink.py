@@ -6,14 +6,16 @@ Flow per user:
   2. Open exercise transaction (POST /users/{uid}/exercise-transactions)
        204 = no new exercises
        201 = transaction created
-  3. List exercises in transaction
+  3. List exercises in transaction (GET {resource-uri}/exercises)
+       404 here = Polar backend race condition; treated as empty list + retry
   4. For each exercise: fetch RR intervals
-  5. Commit transaction (PUT) — mandatory even if empty
+  5. Commit transaction (PUT) — mandatory; always runs even on error
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -21,6 +23,11 @@ import requests
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.polaraccesslink.com/v3"
+
+# Polar backend sometimes returns 404 on the exercises list immediately after
+# opening a transaction (indexing race condition). Retrying usually resolves it.
+_EXERCISES_RETRY_ATTEMPTS = 3
+_EXERCISES_RETRY_DELAY_S  = 3.0
 
 
 def _auth_headers(access_token: str, accept: str = "application/json") -> dict:
@@ -48,6 +55,54 @@ def _register_user(access_token: str, user_id: int) -> None:
         resp.raise_for_status()
 
 
+def _fetch_exercise_urls(resource_uri: str, access_token: str) -> list[str]:
+    """
+    GET {resource_uri}/exercises with retry on 404.
+
+    Polar's backend occasionally returns 404 immediately after a 201 transaction
+    is opened — the exercise hasn't been indexed yet. Retrying after a short
+    delay reliably resolves this.
+
+    Returns an empty list if the endpoint remains unavailable after all retries.
+    """
+    url = f"{resource_uri}/exercises"
+    for attempt in range(1, _EXERCISES_RETRY_ATTEMPTS + 1):
+        resp = requests.get(url, headers=_auth_headers(access_token), timeout=15)
+
+        if resp.status_code == 200:
+            urls = resp.json().get("exercises", [])
+            logger.info("%d exercise(s) found.", len(urls))
+            return urls
+
+        if resp.status_code == 204:
+            logger.info("Transaction has no exercises (204).")
+            return []
+
+        if resp.status_code == 404:
+            if attempt < _EXERCISES_RETRY_ATTEMPTS:
+                logger.warning(
+                    "Exercises endpoint returned 404 (attempt %d/%d) — "
+                    "Polar backend may not have indexed the exercise yet. "
+                    "Retrying in %.0fs…",
+                    attempt, _EXERCISES_RETRY_ATTEMPTS, _EXERCISES_RETRY_DELAY_S,
+                )
+                time.sleep(_EXERCISES_RETRY_DELAY_S)
+                continue
+            else:
+                logger.error(
+                    "Exercises endpoint returned 404 after %d attempts for %s. "
+                    "The session was likely consumed by this transaction without "
+                    "being retrievable. Record a new session to try again.",
+                    _EXERCISES_RETRY_ATTEMPTS, url,
+                )
+                return []
+
+        # Any other non-success status
+        resp.raise_for_status()
+
+    return []
+
+
 def get_rr_intervals(access_token: str, user_id: int) -> list[dict[str, Any]]:
     """
     Fetch RR intervals for all new exercises via the AccessLink transaction flow.
@@ -61,7 +116,7 @@ def get_rr_intervals(access_token: str, user_id: int) -> list[dict[str, Any]]:
             "date"        : "YYYY-MM-DD",
             "rr_intervals": [int, ...]   # milliseconds
         }
-    Returns [] when there are no new exercises (204).
+    Returns [] when there are no new exercises (204) or on recoverable errors.
     """
     # ── 1. Register (idempotent) ──────────────────────────────────────────────
     try:
@@ -81,23 +136,16 @@ def get_rr_intervals(access_token: str, user_id: int) -> list[dict[str, Any]]:
         return []
 
     tx_resp.raise_for_status()
-    transaction     = tx_resp.json()
-    transaction_id  = transaction["transaction-id"]
-    resource_uri    = transaction["resource-uri"]
+    transaction    = tx_resp.json()
+    transaction_id = transaction["transaction-id"]
+    resource_uri   = transaction["resource-uri"]
     logger.info("Transaction %s opened for user %s.", transaction_id, user_id)
 
     results: list[dict[str, Any]] = []
 
     try:
-        # ── 3. List exercises ─────────────────────────────────────────────────
-        ex_list_resp = requests.get(
-            f"{resource_uri}/exercises",
-            headers=_auth_headers(access_token),
-            timeout=15,
-        )
-        ex_list_resp.raise_for_status()
-        exercise_urls: list[str] = ex_list_resp.json().get("exercises", [])
-        logger.info("%d exercise(s) found.", len(exercise_urls))
+        # ── 3. List exercises (with retry on 404) ─────────────────────────────
+        exercise_urls = _fetch_exercise_urls(resource_uri, access_token)
 
         # ── 4. Per-exercise: details + RR intervals ───────────────────────────
         for ex_url in exercise_urls:
@@ -122,6 +170,12 @@ def get_rr_intervals(access_token: str, user_id: int) -> list[dict[str, Any]]:
 
             if rr_resp.status_code == 204:
                 logger.info("No RR intervals for exercise %s.", exercise_id)
+                results.append({
+                    "user_id":      user_id,
+                    "exercise_id":  exercise_id,
+                    "date":         date,
+                    "rr_intervals": [],
+                })
                 continue
 
             rr_resp.raise_for_status()
@@ -133,15 +187,21 @@ def get_rr_intervals(access_token: str, user_id: int) -> list[dict[str, Any]]:
                 "date":         date,
                 "rr_intervals": rr_intervals,
             })
-            logger.info("Exercise %s | date=%s | %d RR intervals.", exercise_id, date, len(rr_intervals))
+            logger.info(
+                "Exercise %s | date=%s | %d RR intervals.",
+                exercise_id, date, len(rr_intervals),
+            )
 
     finally:
-        # ── 5. Commit transaction (mandatory) ─────────────────────────────────
-        commit = requests.put(
-            resource_uri,
-            headers=_auth_headers(access_token),
-            timeout=15,
-        )
-        logger.info("Transaction %s committed → HTTP %s.", transaction_id, commit.status_code)
+        # ── 5. Commit transaction — mandatory, runs even on error ─────────────
+        try:
+            commit = requests.put(
+                resource_uri,
+                headers=_auth_headers(access_token),
+                timeout=15,
+            )
+            logger.info("Transaction %s committed → HTTP %s.", transaction_id, commit.status_code)
+        except Exception as commit_exc:
+            logger.error("Failed to commit transaction %s: %s", transaction_id, commit_exc)
 
     return results

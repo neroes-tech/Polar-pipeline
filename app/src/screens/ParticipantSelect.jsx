@@ -7,7 +7,7 @@ import BigButton from '../components/BigButton.jsx'
 
 // 11 distinct colors cycling across 22 bands (each color repeats exactly twice)
 const AVATAR_COLORS = [
-  '#2B6CF4', '#7C3AED', '#059669', '#DC2626', '#D97706',
+  '#2BBDBD', '#3D6EF5', '#059669', '#DC2626', '#D97706',
   '#0891B2', '#BE185D', '#065F46', '#7C2D12', '#4338CA', '#0F766E',
 ]
 
@@ -70,14 +70,14 @@ export default function ParticipantSelect({ onSelect }) {
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg)', maxWidth: 520, margin: '0 auto' }}>
 
-      {/* ── Aurora header ──────────────────────────────────────── */}
+      {/* ── Brand header ──────────────────────────────────────── */}
       <header style={{
-        background: 'var(--aurora-gradient)',
+        background: 'var(--brand-gradient)',
         padding: '44px 24px 36px',
         position: 'relative',
         overflow: 'hidden',
       }}>
-        {/* Decorative aurora glow blobs */}
+        {/* Decorative glow blobs */}
         <div aria-hidden style={{
           position: 'absolute', top: -50, right: -30,
           width: 220, height: 220, borderRadius: '50%',
