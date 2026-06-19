@@ -6,10 +6,11 @@ import { SessionRecorder } from '../lib/sessionRecorder.js'
 import { uploadSessionRecord, uploadEcgSamples } from '../lib/supabase.js'
 import { saveSessionLocally, markSynced } from '../lib/offlineQueue.js'
 import { EcgRecorder } from '../lib/ecgRecorder.js'
+import { saveActiveSession, clearActiveSession } from '../lib/sessionPersistence.js'
+import { startForegroundService, stopForegroundService } from '../lib/foregroundService.js'
 import EcgCanvas from '../components/EcgCanvas.jsx'
 import BigButton from '../components/BigButton.jsx'
 import LanguageToggle from '../components/LanguageToggle.jsx'
-import HrChart from '../components/HrChart.jsx'
 import Footer from '../components/Footer.jsx'
 
 const CHART_MAX_POINTS = 300
@@ -180,16 +181,16 @@ export default function Record({ participant, onBack }) {
   const [sessionSummary, setSessionSummary] = useState(null)
   const [sessionMode,    setSessionMode]    = useState(null)   // null | 'rest_5min' | 'free'
   const [liveHrv,        setLiveHrv]        = useState({})    // live metrics snapshot
-  // ECG
-  const [ecgEnabled,  setEcgEnabled]  = useState(false)  // toggle before session starts
+  // ECG — always attempted, gracefully degrades if PMD unavailable
   const [ecgActive,   setEcgActive]   = useState(false)  // ECG stream actually running
   const [ecgSettling, setEcgSettling] = useState(true)   // first 2 s of signal
   const [ecgCount,    setEcgCount]    = useState(0)      // sample count for display
 
-  const bleRef          = useRef(null)
-  const recorderRef     = useRef(null)
-  const sessionModeRef  = useRef(null)   // mirror of sessionMode for use in callbacks
-  const autoStoppedRef  = useRef(false)  // guard: prevent double-trigger of auto-stop
+  const bleRef                = useRef(null)
+  const recorderRef           = useRef(null)
+  const sessionModeRef        = useRef(null)   // mirror of sessionMode for use in callbacks
+  const autoStoppedRef        = useRef(false)  // guard: prevent double-trigger of auto-stop
+  const sessionStartWallClock = useRef(null)   // wall-clock ms at session start (for elapsed correction on resume)
   // ECG refs (read by canvas RAF loop and stopAndUpload — never trigger re-renders)
   const ecgRecRef      = useRef(null)    // EcgRecorder instance
   const ecgSettlingRef = useRef(true)    // mirrors ecgSettling for use in callbacks
@@ -218,7 +219,7 @@ export default function Record({ participant, onBack }) {
     async function init() {
       try {
         await ble.initialize()
-        // Both native and web: wait for user to tap "Ligar à banda".
+        connectBle()  // auto-connect on mount; errors handled inside connectBle()
       } catch (e) {
         if (e.message === 'permission_denied') {
           setBleStatus('permission_denied')
@@ -242,10 +243,29 @@ export default function Record({ participant, onBack }) {
     stopAndUpload()
   }, [elapsed])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Layer A: correct elapsed + reconnect BLE on app resume ───────────────
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState !== 'visible') return
+      // Correct elapsed from wall clock if JS was frozen in background
+      if (phase === 'recording' && sessionStartWallClock.current) {
+        const wallElapsed = Math.floor((Date.now() - sessionStartWallClock.current) / 1000)
+        setElapsed(prev => (wallElapsed > prev ? wallElapsed : prev))
+      }
+      // Reconnect BLE if disconnected while in background
+      if (phase === 'recording' && bleStatus !== 'connected' && bleStatus !== 'connecting' && bleStatus !== 'reconnecting') {
+        connectBle()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [phase, bleStatus])  // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── Handlers ─────────────────────────────────────────────
-  function selectMode(mode) {
-    setSessionMode(mode)
+  async function selectAndStart(mode) {
     sessionModeRef.current = mode
+    setSessionMode(mode)
+    await startRecording()
   }
 
   async function connectBle() {
@@ -295,6 +315,7 @@ export default function Record({ participant, onBack }) {
 
   async function startRecording() {
     autoStoppedRef.current = false
+    sessionStartWallClock.current = Date.now()
     const recorder = new SessionRecorder(onRecorderUpdate)
     recorderRef.current = recorder
     recorder.start()
@@ -302,27 +323,33 @@ export default function Record({ participant, onBack }) {
     setChartData([])
     setHrStats({ min: null, avg: null, max: null })
 
-    // ECG — isolated: failure must not affect HR/RR recording
-    if (ecgEnabled) {
-      const ecgRec = new EcgRecorder()
-      ecgRecRef.current   = ecgRec
-      ecgSettlingRef.current = true
-      setEcgSettling(true)
-      setEcgCount(0)
-      try {
-        await bleRef.current.startEcg(onEcgSamples)
-        setEcgActive(true)
-      } catch (e) {
-        console.warn('[ECG] startEcg failed:', e.message)
-        ecgRecRef.current = null
-        setEcgActive(false)
-        // HR/RR recording continues normally
-      }
+    // Persist session so we can restore if app goes to background
+    saveActiveSession({ mode: sessionModeRef.current, startWallClock: sessionStartWallClock.current })
+
+    // Start Android foreground service (keeps process alive in background; no-op on web/iOS)
+    startForegroundService(sessionModeRef.current)
+
+    // ECG — always attempted; isolated so failure never affects HR/RR recording
+    const ecgRec = new EcgRecorder()
+    ecgRecRef.current   = ecgRec
+    ecgSettlingRef.current = true
+    setEcgSettling(true)
+    setEcgCount(0)
+    try {
+      await bleRef.current.startEcg(onEcgSamples)
+      setEcgActive(true)
+    } catch (e) {
+      console.warn('[ECG] startEcg failed:', e.message)
+      ecgRecRef.current = null
+      setEcgActive(false)
     }
   }
 
   function cancelRecording() {
     autoStoppedRef.current = false
+    sessionStartWallClock.current = null
+    clearActiveSession()
+    stopForegroundService()
     if (ecgActive) {
       bleRef.current?.stopEcg().catch(() => {})
       ecgRecRef.current = null
@@ -342,6 +369,9 @@ export default function Record({ participant, onBack }) {
     const recorder = recorderRef.current
     if (!recorder) return
     recorder.stop()
+    sessionStartWallClock.current = null
+    clearActiveSession()
+    stopForegroundService()
     setPhase('uploading')
     setUploadError(null)
 
@@ -422,8 +452,7 @@ export default function Record({ participant, onBack }) {
   }
 
   const bleConnected = bleStatus === 'connected'
-  const canStart     = bleConnected && phase === 'idle' && sessionMode !== null
-  const bleScanning  = bleStatus === 'scanning' || bleStatus === 'connecting'
+  const bleScanning  = bleStatus === 'scanning' || bleStatus === 'connecting' || bleStatus === 'reconnecting'
 
   // Timer display — countdown for rest_5min, elapsed for free
   const displaySecs   = sessionMode === 'rest_5min' ? Math.max(0, REST_DURATION_S - elapsed) : elapsed
@@ -482,18 +511,18 @@ export default function Record({ participant, onBack }) {
         {/* ══ IDLE ══════════════════════════════════════════ */}
         {phase === 'idle' && (
           <>
-            {/* Live HR (shown as soon as connected, before recording) */}
+            {/* Live HR — visible once BLE is connected */}
             <HrDisplay bpm={hrBpm} />
 
-            {/* ── Mode selection ───────────────────────────────── */}
-            {sessionMode === null ? (
+            {bleConnected ? (
+              /* ── BLE ligado: selecciona modo → começa imediatamente ── */
               <div className="animate-fade-up">
                 <p style={{ color: 'var(--text-3)', fontWeight: 700, fontSize: '.85rem', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 14 }}>
                   {t('session.mode_title')}
                 </p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <ModeCard
-                    onClick={() => selectMode('rest_5min')}
+                    onClick={() => selectAndStart('rest_5min')}
                     title={t('session.mode_rest')}
                     desc={t('session.mode_rest_desc')}
                     icon={
@@ -505,7 +534,7 @@ export default function Record({ participant, onBack }) {
                     }
                   />
                   <ModeCard
-                    onClick={() => selectMode('free')}
+                    onClick={() => selectAndStart('free')}
                     title={t('session.mode_free')}
                     desc={t('session.mode_free_desc')}
                     icon={
@@ -518,97 +547,35 @@ export default function Record({ participant, onBack }) {
                 </div>
               </div>
             ) : (
-              <>
-                {/* Mode badge — tap to change */}
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  background: 'var(--bg-teal-soft)', borderRadius: 'var(--r-md)',
-                  padding: '10px 16px', marginBottom: 4,
-                }} className="animate-fade-up">
-                  <span style={{ color: 'var(--teal-2)', fontWeight: 700, fontSize: '.9rem' }}>
-                    {sessionMode === 'rest_5min' ? t('session.mode_rest') : t('session.mode_free')}
-                  </span>
-                  <button
-                    onClick={() => setSessionMode(null)}
-                    style={{ background: 'none', border: 'none', color: 'var(--teal-2)', fontSize: '.85rem', fontWeight: 600, cursor: 'pointer', padding: '2px 0' }}
-                  >
-                    {t('session.mode_change')}
-                  </button>
-                </div>
+              /* ── BLE não ligado: a ligar / erro / retry ── */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 24 }}>
 
-                {/* Live chart */}
-                {chartData.length > 0 && (
-                  <div style={{ marginBottom: 16 }} className="animate-fade-up">
-                    <HrChart data={chartData} stats={hrStats} />
+                {bleScanning && (
+                  <p style={{ textAlign: 'center', color: 'var(--text-4)', fontSize: '.9rem' }}>
+                    {t('ble.auto_connecting', { defaultValue: 'A ligar automaticamente à banda…' })}
+                  </p>
+                )}
+
+                {bleStatus === 'permission_denied' && (
+                  <div style={{ background: '#FFF0F0', border: '1px solid var(--error)', borderRadius: 14, padding: '16px 18px' }}>
+                    <p style={{ color: 'var(--error)', fontWeight: 700, margin: '0 0 6px' }}>
+                      {t('error.permission_denied')}
+                    </p>
+                    <p style={{ color: 'var(--text-3)', fontSize: '.88rem', margin: '0 0 14px', lineHeight: 1.5 }}>
+                      {t('error.permission_hint')}
+                    </p>
+                    <BigButton variant="ghost" onClick={openSettings}>
+                      {t('ble.open_settings')}
+                    </BigButton>
                   </div>
                 )}
 
-                {/* Action area */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: hrBpm ? 16 : 24 }}>
-
-                  {/* Permission denied */}
-                  {bleStatus === 'permission_denied' && (
-                    <div style={{ background: '#FFF0F0', border: '1px solid var(--error)', borderRadius: 14, padding: '16px 18px' }}>
-                      <p style={{ color: 'var(--error)', fontWeight: 700, margin: '0 0 6px' }}>
-                        {t('error.permission_denied')}
-                      </p>
-                      <p style={{ color: 'var(--text-3)', fontSize: '.88rem', margin: '0 0 14px', lineHeight: 1.5 }}>
-                        {t('error.permission_hint')}
-                      </p>
-                      <BigButton variant="ghost" onClick={openSettings}>
-                        {t('ble.open_settings')}
-                      </BigButton>
-                    </div>
-                  )}
-
-                  {/* Connect button */}
-                  {!bleConnected && bleStatus !== 'permission_denied' && (
-                    <BigButton onClick={connectBle} disabled={bleScanning} variant="secondary">
-                      {bleScanning ? t('ble.scanning') : t('ble.connect_btn')}
-                    </BigButton>
-                  )}
-
-                  {/* ECG toggle — shown only when connected (PMD needs BLE) */}
-                  {bleConnected && (
-                    <label style={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      background: ecgEnabled ? 'rgba(0,214,143,0.08)' : 'var(--bg-card)',
-                      border: `1.5px solid ${ecgEnabled ? 'rgba(0,214,143,0.35)' : 'var(--border)'}`,
-                      borderRadius: 'var(--r-md)', padding: '11px 16px', cursor: 'pointer',
-                    }}>
-                      <div>
-                        <div style={{ color: 'var(--text-1)', fontWeight: 700, fontSize: '.9rem' }}>
-                          {t('ecg.toggle')}
-                        </div>
-                        <div style={{ color: 'var(--text-4)', fontSize: '.75rem', marginTop: 2 }}>
-                          {t('ecg.toggle_desc')}
-                        </div>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={ecgEnabled}
-                        onChange={e => setEcgEnabled(e.target.checked)}
-                        style={{ width: 20, height: 20, accentColor: 'var(--teal-2)', flexShrink: 0 }}
-                      />
-                    </label>
-                  )}
-
-                  <BigButton onClick={startRecording} disabled={!canStart}>
-                    {t('session.start')}
+                {!bleScanning && bleStatus !== 'permission_denied' && (
+                  <BigButton onClick={connectBle} variant="secondary">
+                    {t('ble.connect_btn')}
                   </BigButton>
-
-                  {!bleConnected && (
-                    <p style={{ textAlign: 'center', color: 'var(--text-4)', fontSize: '.9rem' }}>
-                      {t('session.ble_required')}
-                    </p>
-                  )}
-                  {sessionMode === 'rest_5min' && (
-                    <p style={{ textAlign: 'center', color: 'var(--text-4)', fontSize: '.88rem', marginTop: 2 }}>
-                      {t('session.hint')}
-                    </p>
-                  )}
-                </div>
-              </>
+                )}
+              </div>
             )}
           </>
         )}
