@@ -181,13 +181,18 @@ export class PolarBle {
 
     let device
     try {
+      // namePrefix + full UUID strings: only format Bluefy (iOS) reliably accepts.
+      // { services: [0x180D] } and numeric values in optionalServices both cause
+      // "Request payload could not be parsed" in Bluefy — use strings throughout.
       device = await navigator.bluetooth.requestDevice({
-        filters:          [{ services: [HRM_SERVICE_NUM] }],
-        // PMD_SERVICE must be in optionalServices or the browser will block access to it
-        optionalServices: [HRM_SERVICE_NUM, PMD_SERVICE],
+        filters:          [{ namePrefix: 'Polar' }],
+        optionalServices: [HRM_SERVICE, PMD_SERVICE],
       })
     } catch (e) {
-      throw new Error(e.name === 'NotFoundError' ? 'device_not_found' : e.message)
+      if (e.name === 'NotFoundError' || e.name === 'NotAllowedError') {
+        throw new Error('device_not_found')
+      }
+      throw new Error(e.message)
     }
 
     this._webDevice = device
