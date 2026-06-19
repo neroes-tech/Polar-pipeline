@@ -23,6 +23,9 @@ data/processed/
 data/reports/
 # device_id = MAC address da banda Polar → identifica dispositivo → fora do repo
 config/participants.yaml
+# Exportações clínicas (ECG, RR, métricas) — sincronizadas via Google Drive
+HE26_export/
+*_export/
 
 # ── Artefactos de build e dependências ────────────────────────
 app/node_modules/

@@ -135,6 +135,66 @@ def get_ecg_samples(session_id: str) -> np.ndarray:
     return np.array([r["voltage_uv"] for r in rows], dtype=np.int32)
 
 
+def get_rr_raw(session_id: str) -> "pd.DataFrame":
+    """
+    Devolve os RR intervals de uma sessão com seq e timestamp_ms.
+    Se timestamp_ms não foi gravado (NULL), calcula-o por acumulação de rr_ms.
+    """
+    rows = (
+        _get_client()
+        .table("rr_intervals")
+        .select("seq, rr_ms, timestamp_ms")
+        .eq("session_id", session_id)
+        .order("seq")
+        .execute()
+        .data
+        or []
+    )
+    if not rows:
+        return pd.DataFrame(columns=["seq", "rr_ms", "timestamp_ms"])
+    df = pd.DataFrame(rows)
+    if df["timestamp_ms"].isna().all():
+        cumsum = np.concatenate([[0], np.cumsum(df["rr_ms"].values[:-1])])
+        df["timestamp_ms"] = cumsum.astype("int64")
+    return df[["seq", "rr_ms", "timestamp_ms"]]
+
+
+def get_ecg_raw(session_id: str) -> "pd.DataFrame":
+    """
+    Devolve as amostras ECG de uma sessão com paginação automática.
+    130 Hz × 5 min = ~39 000 rows; o cliente Supabase limita a 1 000 por pedido.
+    Se timestamp_ms não foi gravado, infere-o a partir do índice e 130 Hz.
+    """
+    PAGE   = 1000
+    offset = 0
+    all_rows: list[dict] = []
+    client = _get_client()
+
+    while True:
+        batch = (
+            client.table("ecg_samples")
+            .select("seq, voltage_uv, timestamp_ms")
+            .eq("session_id", session_id)
+            .order("seq")
+            .range(offset, offset + PAGE - 1)
+            .execute()
+            .data
+            or []
+        )
+        all_rows.extend(batch)
+        if len(batch) < PAGE:
+            break
+        offset += PAGE
+
+    if not all_rows:
+        return pd.DataFrame(columns=["seq", "voltage_uv", "timestamp_ms"])
+
+    df = pd.DataFrame(all_rows)
+    if df["timestamp_ms"].isna().all():
+        df["timestamp_ms"] = (df["seq"] / 130.0 * 1000.0).astype("int64")
+    return df[["seq", "voltage_uv", "timestamp_ms"]]
+
+
 def get_rr_intervals(session_id: str) -> np.ndarray:
     """
     Return RR intervals for a session as a numpy float32 array (ms),
