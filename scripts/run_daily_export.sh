@@ -20,18 +20,29 @@ LOG_FILE="$EXPORT_DIR/_run_log.txt"
 
 mkdir -p "$EXPORT_DIR"
 
-# ── Activar venv se existir ───────────────────────────────────────────────────
-if   [ -f "$REPO_ROOT/.venv/bin/activate" ]; then
-    # shellcheck source=/dev/null
-    source "$REPO_ROOT/.venv/bin/activate"
-elif [ -f "$REPO_ROOT/venv/bin/activate"  ]; then
-    # shellcheck source=/dev/null
-    source "$REPO_ROOT/venv/bin/activate"
+# ── Resolver o Python com as dependências instaladas ─────────────────────────
+# Prioridade: venv do projeto → pyenv (onde pandas/supabase estão instalados)
+# → python3 do sistema (fallback, provavelmente sem dependências).
+# Usar sempre caminho absoluto para funcionar em shell limpo (Task Scheduler,
+# cron, wsl.exe) onde o PATH não tem pyenv shims.
+if   [ -f "$REPO_ROOT/.venv/bin/python3" ]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python3"
+elif [ -f "$REPO_ROOT/venv/bin/python3"  ]; then
+    PYTHON="$REPO_ROOT/venv/bin/python3"
+elif [ -f "/home/bruno1008/.pyenv/versions/3.11.6/bin/python3" ]; then
+    PYTHON="/home/bruno1008/.pyenv/versions/3.11.6/bin/python3"
+else
+    PYTHON="$(which python3 2>/dev/null || echo python3)"
 fi
+
+echo "[run_daily_export] Python: $PYTHON"
+
+# ── Mudar para a raiz do repositório (necessário para imports de src/) ────────
+cd "$REPO_ROOT"
 
 # ── Executar exportação + relatórios ─────────────────────────────────────────
 EXIT_CODE=0
-python3 "$REPO_ROOT/scripts/daily_export.py" \
+"$PYTHON" "$REPO_ROOT/scripts/daily_export.py" \
     --reports \
     --log-file "$LOG_FILE" \
     "$@" \
