@@ -2,6 +2,12 @@
    Design tokens
    ═══════════════════════════════════════════════════════════ */
 :root {
+  /* Safe area insets (Capacitor / iPhone notch / Android gesture bar) */
+  --safe-top:    env(safe-area-inset-top,    0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left:   env(safe-area-inset-left,   0px);
+  --safe-right:  env(safe-area-inset-right,  0px);
+
   /* Aurora blue palette */
   --aurora-1:        #2B6CF4;
   --aurora-2:        #5B6BFF;
@@ -336,4 +342,18 @@ button {
 @media (min-width: 1280px) {
   html { font-size: 20px; }
   #root { display: flex; justify-content: center; }
+}
+
+/* Participant list — single column on phone, 2-col grid on wider screens */
+.participant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+@media (min-width: 560px) {
+  .participant-list {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
 }

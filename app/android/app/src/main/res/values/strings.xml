@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">Neroes HRV</string>
-    <string name="title_activity_main">Neroes HRV</string>
-    <string name="package_name">com.neroes.hrv</string>
-    <string name="custom_url_scheme">com.neroes.hrv</string>
-</resources>

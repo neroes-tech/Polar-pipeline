@@ -2,7 +2,19 @@
   "app_title": "Neroes HRV",
   "nav": {
     "back": "Back",
-    "retry": "Retry"
+    "retry": "Retry",
+    "sign_out": "Sign out"
+  },
+  "auth": {
+    "title": "Sign in",
+    "subtitle": "Study HE26 · Polar H10",
+    "email_label": "Email",
+    "password_label": "Password",
+    "sign_in": "Sign in",
+    "signing_in": "Signing in...",
+    "show_password": "Show password",
+    "hide_password": "Hide password",
+    "error_invalid": "Incorrect email or password"
   },
   "lang": {
     "pt": "PT",
@@ -33,19 +45,33 @@
     "cancel": "Cancel / Reset",
     "uploading": "Uploading data...",
     "finish": "Finish and save",
+    "finish_early": "Stop early",
     "done": "Session saved ✓",
     "new": "New Session",
-    "hint": "5 minutes at rest",
-    "ble_required": "Connect the band to start"
+    "hint": "5 minutes at complete rest",
+    "ble_required": "Connect the band to start",
+    "mode_title": "Choose recording mode",
+    "mode_rest": "5-minute session",
+    "mode_rest_desc": "5:00 countdown timer — stops automatically",
+    "mode_free": "Free session",
+    "mode_free_desc": "No time limit — you stop when you're ready",
+    "mode_change": "Change"
   },
   "recording": {
-    "title": "Recording in progress",
+    "title": "Recording",
+    "time_remaining": "Time remaining",
     "live_hrv": "Live lnRMSSD"
   },
   "stats": {
-    "n_rr": "Beats",
+    "n_rr":    "Beats",
     "hr_mean": "Mean HR",
+    "hr_min":  "HR min",
+    "hr_max":  "HR max",
     "lnrmssd": "lnRMSSD",
+    "rmssd":   "RMSSD",
+    "sdnn":    "SDNN",
+    "pnn50":   "pNN50",
+    "mean_rr": "Mean RR",
     "quality": "Quality"
   },
   "chart": {
@@ -56,9 +82,23 @@
   },
   "error": {
     "upload_failed": "Error uploading data",
+    "save_failed": "Could not save the session",
     "ble_unavailable": "Bluetooth not available on this device",
     "device_not_found": "Polar H10 band not found. Make sure the band is turned on and nearby.",
     "permission_denied": "The app does not have permission to use Bluetooth.",
     "permission_hint": "Go to Settings → Apps → Neroes HRV → Permissions → Bluetooth and select Allow. Then return to the app and connect the band."
+  },
+  "ecg": {
+    "toggle": "Record ECG",
+    "toggle_desc": "Raw signal at 130 Hz (~200 KB per session)",
+    "active": "ECG active",
+    "samples": "{{count}} ECG samples",
+    "unavailable": "ECG unavailable on this connection"
+  },
+  "session_status": {
+    "saved_local": "Saved on device",
+    "saved_synced": "Session saved ✓",
+    "pending_sync": "{{count}} session(s) pending sync",
+    "sync_now": "Sync now"
   }
 }

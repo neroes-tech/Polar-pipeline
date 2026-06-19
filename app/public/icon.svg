@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background: dark blue-petrol, rounded square -->
+  <rect width="512" height="512" rx="110" fill="#1D3557"/>
+
+  <!-- Subtle radial glow behind eye -->
+  <radialGradient id="glow" cx="50%" cy="50%" r="42%">
+    <stop offset="0%" stop-color="#2B6CF4" stop-opacity="0.25"/>
+    <stop offset="100%" stop-color="#1D3557" stop-opacity="0"/>
+  </radialGradient>
+  <ellipse cx="256" cy="252" rx="200" ry="130" fill="url(#glow)"/>
+
+  <!-- Eye outer almond shape — gold fill + stroke -->
+  <path d="M 64 252
+           C 64 170, 152 140, 256 140
+           C 360 140, 448 170, 448 252
+           C 448 334, 360 364, 256 364
+           C 152 364, 64 334, 64 252 Z"
+        fill="rgba(244,211,94,0.10)"
+        stroke="#F4D35E"
+        stroke-width="10"
+        stroke-linejoin="round"/>
+
+  <!-- Iris ring (gold) -->
+  <circle cx="256" cy="252" r="72" fill="#1D3557" stroke="#F4D35E" stroke-width="8"/>
+
+  <!-- Pupil (vivid red) -->
+  <circle cx="256" cy="252" r="42" fill="#E63946"/>
+
+  <!-- Inner pupil dark -->
+  <circle cx="256" cy="252" r="22" fill="#0F1F36"/>
+
+  <!-- Cornea highlight -->
+  <circle cx="238" cy="235" r="11" fill="white" opacity="0.55"/>
+  <circle cx="248" cy="229" r="5"  fill="white" opacity="0.30"/>
+
+  <!-- ECG / pulse trace (white, runs through the eye horizontally) -->
+  <!-- P-wave | Q-dip | R-spike | S-dip | T-wave -->
+  <polyline
+    points="64,252
+            148,252
+            168,252
+            186,244
+            200,260
+            213,216
+            224,296
+            235,252
+            256,252
+            272,252
+            448,252"
+    fill="none"
+    stroke="rgba(255,255,255,0.35)"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+  <polyline
+    points="64,252
+            148,252
+            168,252
+            186,244
+            200,260
+            213,216
+            224,296
+            235,252
+            256,252
+            272,252
+            448,252"
+    fill="none"
+    stroke="white"
+    stroke-width="5"
+    stroke-linecap="round"
+    stroke-linejoin="round"/>
+
+  <!-- Horus teardrop mark below the eye (vertical stroke) -->
+  <line x1="256" y1="364" x2="256" y2="408"
+        stroke="#F4D35E" stroke-width="9" stroke-linecap="round"/>
+
+  <!-- Horus curl (rightward spiral — characteristic Horus mark) -->
+  <path d="M 256 408 Q 298 428, 336 416 Q 362 406, 358 382"
+        fill="none" stroke="#F4D35E" stroke-width="7"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Left eye-brow accent line (Horus upper detail) -->
+  <path d="M 80 208 Q 165 178, 256 174"
+        fill="none" stroke="#F4D35E" stroke-width="5"
+        stroke-linecap="round" opacity="0.6"/>
+</svg>

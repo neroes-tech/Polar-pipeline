@@ -1,0 +1,26 @@
+# ── config/participants.yaml.example ─────────────────────────────────────────
+# Copia para config/participants.yaml e preenche com os dados reais do estudo.
+# O ficheiro real está no .gitignore (contém device_id = MAC address da banda).
+#
+# device_id: endereço MAC da banda Polar H10 (hex sem separadores, ex: A1B2C3D4)
+#            Obtém no Polar Flow ou via scan BLE antes de atribuir ao participante.
+
+participants:
+  - code: "HM01"
+    device_id: "XXXXXXXX"
+    name: null
+    birthdate: null
+    gender: null
+    height_cm: null
+    weight_kg: null
+
+  - code: "HM02"
+    device_id: "XXXXXXXX"
+    name: null
+    birthdate: null
+    gender: null
+    height_cm: null
+    weight_kg: null
+
+  # Adiciona um bloco por participante seguindo o mesmo padrão.
+  # O campo code deve corresponder ao valor em participants.code na base de dados.

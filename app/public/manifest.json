@@ -5,10 +5,16 @@
   "start_url": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#111111",
-  "theme_color": "#111111",
+  "background_color": "#1D3557",
+  "theme_color": "#1D3557",
   "lang": "pt",
   "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192.png",
       "sizes": "192x192",

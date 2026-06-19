@@ -1,0 +1,8 @@
+# ── config/tokens.yaml.example ───────────────────────────────────────────────
+# Copia para config/tokens.yaml e preenche com tokens reais.
+# O ficheiro real está no .gitignore — nunca é commitado.
+
+polar:
+  access_token: "YOUR_POLAR_ACCESSLINK_ACCESS_TOKEN"
+  token_type: "Bearer"
+  # Obtido via OAuth 2.0 Authorization Code flow da Polar AccessLink API

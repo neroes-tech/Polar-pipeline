@@ -2,7 +2,19 @@
   "app_title": "Neroes HRV",
   "nav": {
     "back": "Voltar",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "sign_out": "Sair"
+  },
+  "auth": {
+    "title": "Entrar",
+    "subtitle": "Estudo HE26 · Polar H10",
+    "email_label": "Email",
+    "password_label": "Palavra-passe",
+    "sign_in": "Entrar",
+    "signing_in": "A entrar...",
+    "show_password": "Mostrar palavra-passe",
+    "hide_password": "Esconder palavra-passe",
+    "error_invalid": "Email ou palavra-passe incorretos"
   },
   "lang": {
     "pt": "PT",
@@ -33,19 +45,33 @@
     "cancel": "Cancelar / Reiniciar",
     "uploading": "A enviar dados...",
     "finish": "Terminar e guardar",
+    "finish_early": "Parar antecipadamente",
     "done": "Sessão guardada ✓",
     "new": "Nova Sessão",
-    "hint": "5 minutos em repouso",
-    "ble_required": "Ligue a banda para iniciar"
+    "hint": "5 minutos em repouso total",
+    "ble_required": "Ligue a banda para iniciar",
+    "mode_title": "Escolhe o modo de gravação",
+    "mode_rest": "Sessão de 5 minutos",
+    "mode_rest_desc": "Timer regressivo de 5:00 — termina automaticamente",
+    "mode_free": "Sessão livre",
+    "mode_free_desc": "Sem limite de tempo — terminas quando quiseres",
+    "mode_change": "Mudar"
   },
   "recording": {
-    "title": "Gravação em curso",
+    "title": "Em gravação",
+    "time_remaining": "Tempo restante",
     "live_hrv": "lnRMSSD ao vivo"
   },
   "stats": {
-    "n_rr": "Batimentos",
+    "n_rr":    "Batimentos",
     "hr_mean": "FC média",
+    "hr_min":  "FC mín",
+    "hr_max":  "FC máx",
     "lnrmssd": "lnRMSSD",
+    "rmssd":   "RMSSD",
+    "sdnn":    "SDNN",
+    "pnn50":   "pNN50",
+    "mean_rr": "RR médio",
     "quality": "Qualidade"
   },
   "chart": {
@@ -56,9 +82,23 @@
   },
   "error": {
     "upload_failed": "Erro ao enviar dados",
+    "save_failed": "Não foi possível guardar a sessão",
     "ble_unavailable": "Bluetooth não disponível neste dispositivo",
     "device_not_found": "Banda Polar H10 não encontrada. Confirme que a banda está ligada e próxima.",
     "permission_denied": "A app não tem permissão para usar o Bluetooth.",
     "permission_hint": "Vai a Definições → Aplicações → Neroes HRV → Permissões → Bluetooth e seleciona Permitir. Depois volta à app e liga a banda."
+  },
+  "ecg": {
+    "toggle": "Gravar ECG",
+    "toggle_desc": "Sinal bruto a 130 Hz (~200 KB por sessão)",
+    "active": "ECG ativo",
+    "samples": "{{count}} amostras ECG",
+    "unavailable": "ECG indisponível nesta ligação"
+  },
+  "session_status": {
+    "saved_local": "Guardado no telemóvel",
+    "saved_synced": "Sessão guardada ✓",
+    "pending_sync": "{{count}} sessão(ões) por sincronizar",
+    "sync_now": "Sincronizar agora"
   }
 }

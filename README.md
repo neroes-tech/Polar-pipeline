@@ -118,7 +118,7 @@ Full example: `data/raw/P003_Maria/Maria_2026-06-01.csv`
 
 ---
 
-## Setup
+## Setup (pipeline Python)
 
 ```bash
 python -m venv .venv
@@ -126,3 +126,100 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 jupyter lab
 ```
+
+---
+
+## App móvel (BLE HRV collector)
+
+A app React + Capacitor corre em Android e iOS e faz streaming BLE
+do Polar H10 → RR intervals → Supabase.
+
+### Pré-requisitos
+
+| Ferramenta | Onde instalar |
+|---|---|
+| Node.js ≥ 20 | WSL (Ubuntu) |
+| Android Studio | Windows |
+| Chave Supabase | `app/.env` (ver `app/.env.example`) |
+
+### Primeiro setup
+
+```bash
+cd app
+npm install
+cp .env.example .env          # preencher VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY
+
+# Adicionar plataforma Android (só uma vez)
+npx cap add android
+```
+
+Depois de `npx cap add android`, adicionar permissões BLE ao
+`android/app/src/main/AndroidManifest.xml` (ver secção abaixo).
+
+### Desenvolvimento no browser
+
+```bash
+cd app && npm run dev           # abre em http://localhost:5173
+```
+
+O BLE no browser usa a Web Bluetooth API (Chrome/Edge) — clica
+"Ligar à banda" para abrir o picker nativo.
+
+### Build Android (WSL + Windows)
+
+O Android Studio não consegue compilar a partir de caminhos `\\wsl$\...`.
+O script `sync_to_windows.sh` trata de tudo:
+
+```bash
+cd app
+./sync_to_windows.sh
+```
+
+O script faz automaticamente:
+1. `npm run build` — compila a app web
+2. `npx cap sync android` — sincroniza assets e plugins
+3. Copia `android/` para `C:\Users\bruno\neroes_app_android\`
+
+Depois, no **Android Studio (Windows)**:
+- **File → Open** → `C:\Users\bruno\neroes_app_android`
+- Aguarda o Gradle sync (primeira vez: 2–5 min)
+- Liga telemóvel por USB com Depuração USB ativada
+- Clica **▶ Run**
+
+### Re-deploy após mudanças de código
+
+```bash
+cd app
+./sync_to_windows.sh            # build + sync + copia para Windows
+# No Android Studio: ▶ Run (usa a versão atualizada automaticamente)
+```
+
+### Gerar APK para distribuir
+
+No Android Studio: **Build → Build Bundle(s) / APK(s) → Build APK(s)**
+
+Ficheiro gerado em:
+```
+C:\Users\bruno\neroes_app_android\app\build\outputs\apk\debug\app-debug.apk
+```
+
+### Permissões BLE no AndroidManifest.xml
+
+Adicionar dentro de `<manifest>`, antes de `<application>`:
+
+```xml
+<uses-permission android:name="android.permission.BLUETOOTH_SCAN"
+    android:usesPermissionFlags="neverForLocation" tools:targetApi="s" />
+<uses-permission android:name="android.permission.BLUETOOTH_CONNECT"
+    tools:targetApi="s" />
+<uses-permission android:name="android.permission.BLUETOOTH"
+    android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.BLUETOOTH_ADMIN"
+    android:maxSdkVersion="30" />
+<uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"
+    android:maxSdkVersion="30" />
+<uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+```
+
+> O AndroidManifest.xml em `app/android/` já tem estas permissões.
+> O `sync_to_windows.sh` copia-as para o Windows automaticamente.

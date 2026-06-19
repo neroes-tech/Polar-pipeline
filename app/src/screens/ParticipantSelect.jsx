@@ -1,21 +1,28 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getParticipants } from '../lib/supabase.js'
+import { getParticipants, uploadSessionRecord, uploadEcgSamples } from '../lib/supabase.js'
+import { getPendingCount, syncPending } from '../lib/offlineQueue.js'
 import LanguageToggle from '../components/LanguageToggle.jsx'
 import BigButton from '../components/BigButton.jsx'
 
-// One distinct color per participant slot (cycles if >5)
-const AVATAR_COLORS = ['#2B6CF4', '#7C3AED', '#059669', '#DC2626', '#D97706']
+// 11 distinct colors cycling across 22 bands (each color repeats exactly twice)
+const AVATAR_COLORS = [
+  '#2B6CF4', '#7C3AED', '#059669', '#DC2626', '#D97706',
+  '#0891B2', '#BE185D', '#065F46', '#7C2D12', '#4338CA', '#0F766E',
+]
 
 function avatarNum(code) {
-  return (code.match(/\d+$/) || ['?'])[0].replace(/^0/, '') // "polar01" → "1"
+  // "HM01" → "1", "HM22" → "22"
+  return (code.match(/\d+$/) || ['?'])[0].replace(/^0+/, '') || '?'
 }
 
 export default function ParticipantSelect({ onSelect }) {
   const { t } = useTranslation()
-  const [participants, setParticipants] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [participants,  setParticipants]  = useState([])
+  const [loading,       setLoading]       = useState(true)
+  const [error,         setError]         = useState(null)
+  const [pendingCount,  setPendingCount]  = useState(0)
+  const [syncing,       setSyncing]       = useState(false)
 
   async function load() {
     setLoading(true)
@@ -30,7 +37,35 @@ export default function ParticipantSelect({ onSelect }) {
     }
   }
 
-  useEffect(() => { load() }, [])
+  async function refreshPendingCount() {
+    try { setPendingCount(await getPendingCount()) } catch (_) {}
+  }
+
+  // Upload a pending session record including its ECG data (if any)
+  async function uploadAll(record) {
+    await uploadSessionRecord(record)
+    if (record.ecg_samples?.length > 0) {
+      await uploadEcgSamples(record.id, record.ecg_samples).catch(e =>
+        console.warn('[sync] ECG upload failed for', record.id, e.message)
+      )
+    }
+  }
+
+  async function handleSyncNow() {
+    setSyncing(true)
+    try {
+      await syncPending(uploadAll)
+      await refreshPendingCount()
+    } catch (_) {}
+    setSyncing(false)
+  }
+
+  useEffect(() => {
+    load()
+    refreshPendingCount()
+    // On mount, silently flush any pending sessions (including ECG)
+    syncPending(uploadAll).then(() => refreshPendingCount()).catch(() => {})
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div style={{ minHeight: '100dvh', background: 'var(--bg)', maxWidth: 520, margin: '0 auto' }}>
@@ -72,9 +107,34 @@ export default function ParticipantSelect({ onSelect }) {
         <h2 style={{ color: 'var(--text-1)', fontSize: '1.45rem', fontWeight: 800, marginBottom: 6 }}>
           {t('participant_select.title')}
         </h2>
-        <p style={{ color: 'var(--text-4)', fontSize: '.95rem', marginBottom: 32 }}>
+        <p style={{ color: 'var(--text-4)', fontSize: '.95rem', marginBottom: pendingCount > 0 ? 16 : 32 }}>
           {t('participant_select.subtitle')}
         </p>
+
+        {/* Pending sync banner */}
+        {pendingCount > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'var(--warning-light, #FFFBEB)',
+            border: '1.5px solid var(--warning, #D97706)',
+            borderRadius: 'var(--r-md)', padding: '12px 16px', marginBottom: 24,
+          }}>
+            <span style={{ color: 'var(--warning, #D97706)', fontSize: '.88rem', fontWeight: 700 }}>
+              {t('session_status.pending_sync', { count: pendingCount })}
+            </span>
+            <button
+              onClick={handleSyncNow}
+              disabled={syncing}
+              style={{
+                background: 'none', border: 'none',
+                color: 'var(--warning, #D97706)', fontSize: '.85rem', fontWeight: 700,
+                cursor: syncing ? 'default' : 'pointer', opacity: syncing ? .6 : 1,
+              }}
+            >
+              {syncing ? '…' : t('session_status.sync_now')}
+            </button>
+          </div>
+        )}
 
         {/* Loading */}
         {loading && (
@@ -106,7 +166,7 @@ export default function ParticipantSelect({ onSelect }) {
 
         {/* Participant cards */}
         {!loading && !error && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="participant-list">
             {participants.map((p, idx) => {
               const num   = avatarNum(p.code)
               const color = AVATAR_COLORS[idx % AVATAR_COLORS.length]
@@ -115,22 +175,23 @@ export default function ParticipantSelect({ onSelect }) {
                   key={p.id}
                   onClick={() => onSelect(p)}
                   className="participant-card"
-                  aria-label={`Selecionar ${p.name}`}
+                  aria-label={`Selecionar banda ${p.code}`}
                 >
                   {/* Avatar */}
                   <div style={{
                     flexShrink: 0,
-                    width: 54,
-                    height: 54,
+                    width: 50,
+                    height: 50,
                     borderRadius: '50%',
                     background: color,
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     color: '#fff',
-                    fontSize: '1.25rem',
+                    fontSize: num.length > 1 ? '1rem' : '1.2rem',
                     fontWeight: 800,
                     boxShadow: `0 3px 12px ${color}55`,
+                    letterSpacing: '-.01em',
                   }}>
                     {num}
                   </div>
@@ -139,22 +200,27 @@ export default function ParticipantSelect({ onSelect }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{
                       color: 'var(--text-1)',
-                      fontSize: '1.15rem',
-                      fontWeight: 700,
+                      fontSize: '1.1rem',
+                      fontWeight: 800,
                       marginBottom: 3,
-                      whiteSpace: 'nowrap',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
+                      fontVariantNumeric: 'tabular-nums',
+                      letterSpacing: '.01em',
                     }}>
-                      {p.name}
+                      {p.code}
                     </div>
-                    <div style={{ color: 'var(--text-4)', fontSize: '.8rem', fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-                      {p.code} · {p.device_id}
+                    <div style={{
+                      color: 'var(--text-4)',
+                      fontSize: '.75rem',
+                      fontWeight: 500,
+                      fontVariantNumeric: 'tabular-nums',
+                      letterSpacing: '.04em',
+                    }}>
+                      {p.device_id}
                     </div>
                   </div>
 
                   {/* Chevron */}
-                  <svg aria-hidden width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <svg aria-hidden width="18" height="18" viewBox="0 0 20 20" fill="none" style={{ flexShrink: 0 }}>
                     <path d="M7 5l5 5-5 5" stroke="var(--border-strong)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 </button>

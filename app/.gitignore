@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output (Vite)
+dist/
+
+# Environment secrets (real values — use .env.example for reference)
+.env
+.env.local
+.env.*.local
+
+# Native Android project (built locally via Android Studio + sync_to_windows.sh)
+android/
+
+# Capacitor cache
+.capacitor/
