@@ -2,12 +2,14 @@
 """
 daily_export.py — Exportação e análise de dados HE26.
 
-Uso:
-  python scripts/daily_export.py                # exporta só sessões novas
+Uso manual:
+  python scripts/daily_export.py                # exporta sessões novas
   python scripts/daily_export.py --force        # reexporta tudo do zero
   python scripts/daily_export.py --reports      # exporta + gera relatórios
   python scripts/daily_export.py --reports-only # só relatórios (sem exportar)
-  python scripts/daily_export.py --all          # alias de --force
+
+Uso automático (chamado por run_daily_export.sh):
+  python scripts/daily_export.py --reports --log-file HE26_export/_run_log.txt
 
 A pasta de destino é configurada em EXPORT_DIR abaixo, ou pela variável
 de ambiente HE26_EXPORT_DIR.
@@ -18,6 +20,9 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import time
+import traceback
+from datetime import datetime
 from pathlib import Path
 
 # ── Configuração ──────────────────────────────────────────────────────────────
@@ -26,8 +31,19 @@ EXPORT_DIR = Path(
     os.environ.get("HE26_EXPORT_DIR", str(REPO_ROOT / "HE26_export"))
 )
 
-# Adicionar src/ ao path para imports relativos
 sys.path.insert(0, str(REPO_ROOT))
+
+
+# ── Logging para ficheiro (uma linha por execução) ────────────────────────────
+
+def _log_append(log_path: Path, line: str) -> None:
+    """Acrescenta uma linha ao ficheiro de log. Nunca falha nem interrompe o fluxo."""
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -60,6 +76,16 @@ def parse_args() -> argparse.Namespace:
         metavar="PATH",
         help=f"Pasta raiz da exportação (default: {EXPORT_DIR})",
     )
+    p.add_argument(
+        "--log-file",
+        default=None,
+        metavar="PATH",
+        dest="log_file",
+        help=(
+            "Ficheiro de log para execução autónoma (acrescenta, não sobrescreve). "
+            "Regista uma linha por execução com data/hora, contagens e resultado."
+        ),
+    )
     return p.parse_args()
 
 
@@ -73,14 +99,14 @@ def run_export(export_dir: Path, force: bool) -> tuple[int, int, list[str]]:
 
 # ── Passo 2: Relatórios ───────────────────────────────────────────────────────
 
-def run_reports(export_dir: Path) -> None:
+def run_reports(export_dir: Path) -> int:
+    """Gera relatórios e devolve o número de participantes com relatório gerado."""
     from src.report_engine import generate_participant_report, generate_global_report
 
     print("\n══════════════════════════════════════════")
     print("  Geração de relatórios")
     print("══════════════════════════════════════════\n")
 
-    # Relatórios por participante
     n_rel = 0
     for p_dir in sorted(export_dir.iterdir()):
         if not p_dir.is_dir() or p_dir.name.startswith("_"):
@@ -92,7 +118,6 @@ def run_reports(export_dir: Path) -> None:
         else:
             print(f"  ⚠ {p_dir.name}: sem dados suficientes para relatório")
 
-    # Relatório geral
     geral = generate_global_report(export_dir)
     if geral:
         print(f"\n  ✓ Relatório geral: {geral.name}")
@@ -101,33 +126,65 @@ def run_reports(export_dir: Path) -> None:
 
     print(f"\n  {n_rel} relatório(s) de participante gerado(s)")
     print("══════════════════════════════════════════\n")
+    return n_rel
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    args = parse_args()
+    args       = parse_args()
     export_dir = Path(args.export_dir)
+    log_path   = Path(args.log_file) if args.log_file else None
+    t_start    = time.monotonic()
 
     print(f"\nHE26 Export  ·  destino: {export_dir}")
+    if args.force:
+        print("  modo: --force (reexporta tudo)")
 
-    n_new = n_skip = 0
+    n_new     = 0
+    n_skip    = 0
+    n_reports = 0
     errors: list[str] = []
 
-    if not args.reports_only:
-        n_new, n_skip, errors = run_export(export_dir, force=args.force)
+    try:
+        if not args.reports_only:
+            n_new, n_skip, errors = run_export(export_dir, force=args.force)
 
-    if args.reports or args.reports_only:
-        run_reports(export_dir)
+        if args.reports or args.reports_only:
+            n_reports = run_reports(export_dir)
 
-    # Código de saída: 0 se sem erros, 1 se houve pelo menos um erro
-    if errors:
-        print("Erros registados:")
-        for e in errors:
-            print(f"  {e}")
+    except Exception as exc:
+        # Falha não recuperável: rede em baixo, secrets.yaml em falta, disco cheio, etc.
+        elapsed = time.monotonic() - t_start
+        err_short = f"{type(exc).__name__}: {exc}"
+        print(f"\n[ERRO FATAL] {err_short}", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+
+        if log_path:
+            ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            _log_append(log_path, f"{ts} | ERROR | {err_short} | duração={elapsed:.1f}s")
+
         sys.exit(1)
 
-    sys.exit(0)
+    # ── Resumo final ──────────────────────────────────────────────────────────
+    elapsed = time.monotonic() - t_start
+    status  = "ERROR" if errors else "OK"
+
+    if errors:
+        print("\nErros registados:")
+        for e in errors:
+            print(f"  {e}")
+
+    # Linha estruturada para o ficheiro de log (uma por execução)
+    if log_path:
+        ts      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        summary = (
+            f"novas={n_new} saltas={n_skip} erros={len(errors)} "
+            f"relatórios={n_reports} duração={elapsed:.1f}s"
+        )
+        _log_append(log_path, f"{ts} | {status:<5} | {summary}")
+
+    sys.exit(1 if errors else 0)
 
 
 if __name__ == "__main__":
