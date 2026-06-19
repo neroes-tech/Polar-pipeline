@@ -1,0 +1,7 @@
+study:
+  # Data de início do estudo HE26. Sessões com data anterior são dados de
+  # teste recolhidos durante o setup e ficam excluídas da análise por defeito.
+  # Os dados de teste NÃO são apagados — ficam na BD para referência.
+  # Para incluí-los na análise, passar start_date="2020-01-01" explicitamente
+  # a get_sessions() ou build_master_dataframe().
+  start_date: "2026-06-20"

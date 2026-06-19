@@ -24,6 +24,23 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT    = Path(__file__).resolve().parent.parent
 SECRETS_PATH = REPO_ROOT / "config" / "secrets.yaml"
+STUDY_PATH   = REPO_ROOT / "config" / "study.yaml"
+
+
+def _load_study_start_date() -> str | None:
+    """Read study.start_date from config/study.yaml. Returns None if missing."""
+    try:
+        with open(STUDY_PATH, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        return cfg.get("study", {}).get("start_date")
+    except FileNotFoundError:
+        return None
+
+
+# Default lower bound for analysis queries — sessions before this date are
+# test data collected during setup. Pass start_date=None explicitly to include
+# test sessions. The export pipeline always uses start_date=None (exports all).
+STUDY_START_DATE: str | None = _load_study_start_date()
 
 
 # ── Client ────────────────────────────────────────────────────────────────────
@@ -64,7 +81,7 @@ def get_participants() -> list[dict[str, Any]]:
 
 
 def get_sessions(
-    start_date: str | None = None,
+    start_date: str | None = STUDY_START_DATE,
     end_date:   str | None = None,
 ) -> pd.DataFrame:
     """
@@ -72,7 +89,10 @@ def get_sessions(
 
     Parameters
     ----------
-    start_date : "YYYY-MM-DD" or None — inclusive lower bound
+    start_date : "YYYY-MM-DD" or None — inclusive lower bound.
+                 Defaults to study.start_date from config/study.yaml so that
+                 analysis queries exclude pre-study test sessions automatically.
+                 Pass start_date=None to retrieve all sessions including tests.
     end_date   : "YYYY-MM-DD" or None — inclusive upper bound
 
     Returns
@@ -253,7 +273,7 @@ def _rr_to_1hz(rr_ms: np.ndarray) -> pd.DataFrame:
 # ── Master DataFrame builder ──────────────────────────────────────────────────
 
 def build_master_dataframe(
-    start_date: str | None = None,
+    start_date: str | None = STUDY_START_DATE,
     end_date:   str | None = None,
 ) -> pd.DataFrame:
     """
@@ -273,7 +293,8 @@ def build_master_dataframe(
 
     Parameters
     ----------
-    start_date : "YYYY-MM-DD" or None
+    start_date : "YYYY-MM-DD" or None. Defaults to study.start_date from
+                 config/study.yaml. Pass None to include pre-study test sessions.
     end_date   : "YYYY-MM-DD" or None
 
     Returns

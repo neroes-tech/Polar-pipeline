@@ -320,6 +320,34 @@ Calculadas em `src/hrv_metrics.py` e ao vivo em `app/src/lib/hrvCalc.js`.
 
 ---
 
+## Data de corte: teste vs. estudo real
+
+O estudo HE26 começou em **2026-06-20**. Sessões com `session_date` anterior a essa data foram recolhidas durante o setup e são consideradas dados de teste.
+
+A data de corte está em `config/study.yaml`:
+```yaml
+study:
+  start_date: "2026-06-20"
+```
+
+**Comportamento por defeito:**
+- `get_sessions()` e `build_master_dataframe()` (análise nos notebooks) filtram automaticamente para `session_date >= 2026-06-20`.
+- A exportação diária (`daily_export.py` / `ExportEngine`) **exporta sempre tudo**, incluindo sessões de teste — para não perder dados.
+
+**Override para ver dados de teste:**
+```python
+# Incluir todas as sessões (teste + estudo)
+df = get_sessions(start_date=None)
+df = build_master_dataframe(start_date=None)
+
+# Ou passar uma data antes do setup:
+df = get_sessions(start_date="2020-01-01")
+```
+
+Os dados de teste não são apagados — ficam na base de dados e em `HE26_export/` para referência.
+
+---
+
 ## Segurança e RGPD
 
 O repositório não contém dados clínicos nem credenciais. O `.gitignore` exclui:

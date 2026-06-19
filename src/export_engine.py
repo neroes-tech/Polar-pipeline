@@ -246,7 +246,7 @@ class ExportEngine:
                 print("  Modo: --force (reexporta tudo)")
             print("══════════════════════════════════════════\n")
 
-        sessions = get_sessions()
+        sessions = get_sessions(start_date=None)  # export always includes test sessions
         if sessions.empty:
             if verbose:
                 print("  Nenhuma sessão encontrada no Supabase.")
