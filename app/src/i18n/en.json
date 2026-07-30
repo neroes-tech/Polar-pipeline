@@ -8,13 +8,13 @@
   "auth": {
     "title": "Sign in",
     "subtitle": "Study HE26 · Polar H10",
-    "email_label": "Email",
+    "username_label": "User",
     "password_label": "Password",
     "sign_in": "Sign in",
     "signing_in": "Signing in...",
     "show_password": "Show password",
     "hide_password": "Hide password",
-    "error_invalid": "Incorrect email or password",
+    "error_invalid": "Incorrect user or password",
     "security_badge": "Secure authentication · Supabase"
   },
   "lang": {
@@ -100,6 +100,13 @@
     "saved_local": "Saved on device",
     "saved_synced": "Session saved ✓",
     "pending_sync": "{{count}} session(s) pending sync",
-    "sync_now": "Sync now"
+    "sync_now": "Sync now",
+    "recovered_banner": "{{count}} previous session(s) recovered (partial data) — saved locally and will sync soon."
+  },
+  "battery": {
+    "prompt_title": "Background recording",
+    "prompt_body": "For the band to keep recording with the phone in a pocket or locked, turn off battery optimization for this app.",
+    "prompt_confirm": "Turn off battery optimization",
+    "prompt_dismiss": "Not now"
   }
 }

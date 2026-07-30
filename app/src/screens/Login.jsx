@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { signIn } from '../lib/supabase.js'
+import { signIn, resolveLoginIdentity } from '../lib/supabase.js'
 import LanguageToggle from '../components/LanguageToggle.jsx'
 import Footer from '../components/Footer.jsx'
 
-function IconMail() {
+function IconUser() {
   return (
     <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="2" y="4" width="20" height="16" rx="2"/>
-      <path d="m2 7 9 5.5c.63.36 1.37.36 2 0L22 7"/>
+      <circle cx="12" cy="8" r="4"/>
+      <path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>
     </svg>
   )
 }
@@ -78,21 +78,28 @@ function IconShield() {
 
 export default function Login() {
   const { t } = useTranslation()
-  const [email,      setEmail]      = useState('')
-  const [password,   setPassword]   = useState('')
-  const [showPw,     setShowPw]     = useState(false)
-  const [loading,    setLoading]    = useState(false)
-  const [error,      setError]      = useState(null)
-  const [emailFocus, setEmailFocus] = useState(false)
-  const [pwFocus,    setPwFocus]    = useState(false)
+  const [username,      setUsername]      = useState('')
+  const [password,      setPassword]      = useState('')
+  const [showPw,        setShowPw]        = useState(false)
+  const [loading,       setLoading]       = useState(false)
+  const [error,         setError]         = useState(null)
+  const [usernameFocus, setUsernameFocus] = useState(false)
+  const [pwFocus,       setPwFocus]       = useState(false)
+
+  // "01".."31" sign in with a shared password the user never sees or types —
+  // only "formador" (the one account that isn't part of that numbered
+  // pattern) still needs its own real password, so the field only appears
+  // once that's what's typed in Utilizador.
+  const identity      = resolveLoginIdentity(username)
+  const needsPassword = identity?.needsPassword ?? false
 
   async function handleSubmit(e) {
     e.preventDefault()
-    if (!email.trim() || !password) return
+    if (!identity || (needsPassword && !password)) return
     setLoading(true)
     setError(null)
     try {
-      await signIn(email.trim().toLowerCase(), password)
+      await signIn(identity.email, needsPassword ? password : identity.password)
     } catch (_) {
       setError(t('auth.error_invalid'))
       setLoading(false)
@@ -179,8 +186,8 @@ export default function Login() {
         }}>
           <form onSubmit={handleSubmit} noValidate>
 
-            {/* ── Email ──────────────────────────────────── */}
-            <div style={{ marginBottom: 16 }}>
+            {/* ── Utilizador ─────────────────────────────── */}
+            <div style={{ marginBottom: needsPassword ? 16 : 6 }}>
               <span style={{
                 display: 'block',
                 color: 'var(--text-3)',
@@ -189,32 +196,32 @@ export default function Login() {
                 marginBottom: 7,
                 letterSpacing: '.025em',
               }}>
-                {t('auth.email_label')}
+                {t('auth.username_label')}
               </span>
               <div style={{
                 display: 'flex',
                 alignItems: 'center',
                 height: 48,
                 borderRadius: 12,
-                border: `1.5px solid ${emailFocus ? FOCUS_CLR : BORDER_CLR}`,
+                border: `1.5px solid ${usernameFocus ? FOCUS_CLR : BORDER_CLR}`,
                 background: 'var(--bg-input)',
                 transition: 'border-color .14s',
                 paddingLeft: 13,
               }}>
-                <span style={{ color: emailFocus ? TEAL : 'var(--text-4)', display: 'flex', flexShrink: 0, transition: 'color .14s' }}>
-                  <IconMail />
+                <span style={{ color: usernameFocus ? TEAL : 'var(--text-4)', display: 'flex', flexShrink: 0, transition: 'color .14s' }}>
+                  <IconUser />
                 </span>
                 <input
-                  type="email"
-                  inputMode="email"
+                  type="text"
+                  inputMode="numeric"
                   autoCapitalize="none"
                   autoCorrect="off"
                   autoComplete="username"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  onFocus={() => setEmailFocus(true)}
-                  onBlur={() => setEmailFocus(false)}
-                  placeholder="polar01@healme.pt"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  onFocus={() => setUsernameFocus(true)}
+                  onBlur={() => setUsernameFocus(false)}
+                  placeholder="01"
                   required
                   style={{
                     flex: 1,
@@ -232,7 +239,8 @@ export default function Login() {
               </div>
             </div>
 
-            {/* ── Password ───────────────────────────────── */}
+            {/* ── Password — only for "formador", which keeps a real password ── */}
+            {needsPassword && (
             <div style={{ marginBottom: 6 }}>
               <span style={{
                 display: 'block',
@@ -300,6 +308,7 @@ export default function Login() {
                 </button>
               </div>
             </div>
+            )}
 
             {/* ── Error ──────────────────────────────────── */}
             <div style={{ minHeight: 32, display: 'flex', alignItems: 'center' }}>
@@ -327,7 +336,7 @@ export default function Login() {
             {/* ── Submit ─────────────────────────────────── */}
             <button
               type="submit"
-              disabled={loading || !email || !password}
+              disabled={loading || !identity || (needsPassword && !password)}
               className="btn btn-primary"
               style={{ marginTop: 4 }}
             >

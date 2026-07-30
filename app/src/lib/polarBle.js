@@ -1,5 +1,15 @@
 import { Capacitor } from '@capacitor/core'
 import { BleClient } from '@capacitor-community/bluetooth-le'
+import { Preferences } from '@capacitor/preferences'
+
+// Reconnecting to an already-known device without an interactive picker
+// works differently per platform: Android exposes getBondedDevices() (the
+// OS's own persistent pairing list, no bookkeeping needed on our side), but
+// iOS has no equivalent — CoreBluetooth doesn't let apps enumerate paired
+// devices freely, for privacy reasons. On iOS the only silent path is
+// getDevices([id]), which needs an id we saw before — so we persist it
+// ourselves the first time a connection succeeds.
+const DEVICE_ID_KEY = 'neroes_ble_device_id'
 
 // ── HRM (Heart Rate Measurement) ─────────────────────────────────────────────
 const HRM_SERVICE     = '0000180d-0000-1000-8000-00805f9b34fb'
@@ -73,11 +83,16 @@ export function parsePmdEcgFrame(dataView) {
 }
 
 export class PolarBle {
-  constructor({ onStatus, onHrm, onDisconnect }) {
-    this._onStatus     = onStatus
-    this._onHrm        = onHrm
-    this._onDisconnect = onDisconnect
-    this._reconnecting = false
+  constructor({ onStatus, onHrm, onDisconnect, onReconnected }) {
+    this._onStatus      = onStatus
+    this._onHrm         = onHrm
+    this._onDisconnect   = onDisconnect
+    this._onReconnected = onReconnected || (() => {})
+    this._reconnecting     = false
+    this._reconnectAttempt = 0
+    // Set on explicit disconnect() so an in-flight retry loop stops instead
+    // of fighting a deliberate stop/logout. Cleared again on the next connect().
+    this._stopReconnecting = false
 
     // Native state
     this._deviceId   = null
@@ -117,6 +132,7 @@ export class PolarBle {
   }
 
   async connect() {
+    this._stopReconnecting = false
     if (this.isWeb) {
       await this._connectWeb()
     } else {
@@ -125,6 +141,7 @@ export class PolarBle {
   }
 
   async disconnect() {
+    this._stopReconnecting = true
     if (this.isWeb) {
       try { await this._stopEcgWeb() } catch (_) {}
       try { if (this._webChar) await this._webChar.stopNotifications() } catch (_) {}
@@ -270,20 +287,32 @@ export class PolarBle {
   _handleWebDisconnect() {
     if (this._reconnecting) return
     this._reconnecting = true
+    this._reconnectAttempt = 0
     this._onStatus('reconnecting')
     this._onDisconnect()
+    this._scheduleWebReconnect()
+  }
 
+  // Retries forever (band in a pocket/bag can be out of range for minutes at
+  // a time during a long field session) with capped exponential backoff, so
+  // a single failed attempt never leaves the band silently disconnected —
+  // the old behaviour gave up after one try and required reopening the app.
+  _scheduleWebReconnect() {
+    const delay = Math.min(3000 + this._reconnectAttempt * 2000, 15000)
     setTimeout(async () => {
-      if (!this._webDevice) { this._reconnecting = false; return }
+      if (this._stopReconnecting || !this._webDevice) { this._reconnecting = false; return }
+      this._reconnectAttempt++
       try {
         await this._webGattConnect()
         this._reconnecting = false
+        this._reconnectAttempt = 0
         this._onStatus('connected')
+        this._onReconnected()
       } catch (_) {
-        this._reconnecting = false
-        this._onStatus('error')
+        this._onStatus('reconnecting')
+        this._scheduleWebReconnect()
       }
-    }, 3000)
+    }, delay)
   }
 
   // ── Capacitor BLE (native Android/iOS) path ───────────────────────────────
@@ -295,27 +324,19 @@ export class PolarBle {
   async _connectNative() {
     this._onStatus('scanning')
 
-    // Strategy 1: connect directly to a Polar H10 already bonded in Android Settings.
-    // Uses only BLUETOOTH_CONNECT (no BLUETOOTH_SCAN required).
+    // Strategy 1: connect silently to an already-known Polar H10, no picker.
+    // The actual lookup differs per platform (see DEVICE_ID_KEY comment above).
     try {
-      const bonded = await BleClient.getBondedDevices()
-      const h10 = bonded.find(d => (d.name || '').toLowerCase().includes('polar'))
-      if (h10) {
-        this._deviceId   = h10.deviceId
-        this._deviceName = h10.name || 'Polar H10'
-        this._onStatus('connecting')
-        await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect())
-        await BleClient.startNotifications(
-          this._deviceId, HRM_SERVICE, HRM_CHAR,
-          (dv) => this._onHrm(parseHrmNotification(dv))
-        )
-        this._reconnecting = false
-        this._onStatus('connected')
+      const knownId = await this._findKnownDeviceId()
+      if (knownId) {
+        await this._connectToKnownDevice(knownId)
         return
       }
     } catch (_) {}
 
-    // Strategy 2: native OS picker (requires BLUETOOTH_SCAN at runtime).
+    // Strategy 2: native OS picker (requires BLUETOOTH_SCAN at runtime on
+    // Android; on iOS this is the only way to discover a device the first
+    // time, since there is no bonded-devices list to read).
     let device
     try {
       device = await BleClient.requestDevice({
@@ -342,7 +363,50 @@ export class PolarBle {
       this._deviceId, HRM_SERVICE, HRM_CHAR,
       (dv) => this._onHrm(parseHrmNotification(dv))
     )
-    this._reconnecting = false
+    this._reconnecting     = false
+    this._reconnectAttempt = 0
+    this._onStatus('connected')
+
+    // Remember this device so the NEXT app launch can reconnect silently on
+    // iOS too (see _findKnownDeviceId). Harmless no-op benefit on Android,
+    // which already has getBondedDevices() as its own persistent record.
+    Preferences.set({ key: DEVICE_ID_KEY, value: this._deviceId }).catch(() => {})
+  }
+
+  /** Returns a deviceId we can connect to directly without a picker, or null if none is known. */
+  async _findKnownDeviceId() {
+    if (Capacitor.getPlatform() === 'android') {
+      const bonded = await BleClient.getBondedDevices()
+      const h10 = bonded.find(d => (d.name || '').toLowerCase().includes('polar'))
+      return h10 ? h10.deviceId : null
+    }
+    // iOS (and web, though web uses a separate _connectWeb path entirely):
+    // getBondedDevices() doesn't exist here — CoreBluetooth doesn't let apps
+    // enumerate paired devices for privacy reasons. getDevices([id]) can
+    // still retrieve a specific device we already know the id of.
+    const { value: savedId } = await Preferences.get({ key: DEVICE_ID_KEY })
+    if (!savedId) return null
+    const known = await BleClient.getDevices([savedId])
+    return known.length > 0 ? known[0].deviceId : null
+  }
+
+  async _connectToKnownDevice(deviceId) {
+    this._deviceId   = deviceId
+    this._deviceName = 'Polar H10'
+    this._onStatus('connecting')
+    // Defensive: if the app's Activity/process was recreated mid-session,
+    // the OS Bluetooth stack can be left believing this device is still
+    // connected from the now-gone plugin instance. Connecting again on top
+    // of that silently fails, which used to fall through to the manual
+    // device picker — clear it first.
+    try { await BleClient.disconnect(deviceId) } catch (_) {}
+    await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect())
+    await BleClient.startNotifications(
+      this._deviceId, HRM_SERVICE, HRM_CHAR,
+      (dv) => this._onHrm(parseHrmNotification(dv))
+    )
+    this._reconnecting     = false
+    this._reconnectAttempt = 0
     this._onStatus('connected')
   }
 
@@ -400,23 +464,37 @@ export class PolarBle {
   _handleNativeDisconnect() {
     if (this._reconnecting) return
     this._reconnecting = true
+    this._reconnectAttempt = 0
     this._onStatus('reconnecting')
     this._onDisconnect()
+    this._scheduleNativeReconnect()
+  }
 
+  // Retries forever (band in a pocket/bag can be out of range for minutes at
+  // a time during a long field session) with capped exponential backoff, so
+  // a single failed attempt never leaves the band silently disconnected —
+  // the old behaviour gave up after one try and required reopening the app.
+  // On success, fires onReconnected() so the caller can resume the ECG
+  // stream, which does NOT survive a GATT disconnect on its own.
+  _scheduleNativeReconnect() {
+    const delay = Math.min(3000 + this._reconnectAttempt * 2000, 15000)
     setTimeout(async () => {
-      if (!this._deviceId) { this._reconnecting = false; return }
+      if (this._stopReconnecting || !this._deviceId) { this._reconnecting = false; return }
+      this._reconnectAttempt++
       try {
         await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect())
         await BleClient.startNotifications(
           this._deviceId, HRM_SERVICE, HRM_CHAR,
           (dv) => this._onHrm(parseHrmNotification(dv))
         )
-        this._reconnecting = false
+        this._reconnecting     = false
+        this._reconnectAttempt = 0
         this._onStatus('connected')
+        this._onReconnected()
       } catch (_) {
-        this._reconnecting = false
-        this._onStatus('error')
+        this._onStatus('reconnecting')
+        this._scheduleNativeReconnect()
       }
-    }, 3000)
+    }, delay)
   }
 }

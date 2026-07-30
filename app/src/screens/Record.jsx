@@ -4,12 +4,16 @@ import { Capacitor } from '@capacitor/core'
 import { PolarBle } from '../lib/polarBle.js'
 import { SessionRecorder } from '../lib/sessionRecorder.js'
 import { uploadSessionRecord, uploadEcgSamples } from '../lib/supabase.js'
-import { saveSessionLocally, markSynced } from '../lib/offlineQueue.js'
+import { beginSession, appendRr, appendEcg, finishSession, discardSession, markSynced, getSessionArrays } from '../lib/localSessionStore.js'
+import { computeSessionMetrics } from '../lib/hrvCalc.js'
 import { EcgRecorder } from '../lib/ecgRecorder.js'
-import { saveActiveSession, clearActiveSession } from '../lib/sessionPersistence.js'
 import { startForegroundService, stopForegroundService } from '../lib/foregroundService.js'
+import { startTicker, updateTickerStatus, stopTicker } from '../lib/notificationTicker.js'
 import { primeAudioContext, playSessionEndAlert } from '../lib/sessionAlert.js'
 import { activateKeepAwake, releaseKeepAwake } from '../lib/keepAwake.js'
+import { isBatteryOptimizationEnabled, requestDisableBatteryOptimization } from '../lib/batteryOptimization.js'
+import { notifyBleDisconnected, notifySessionSaved, notifySessionsSynced } from '../lib/localAlerts.js'
+import { Preferences } from '@capacitor/preferences'
 import EcgCanvas from '../components/EcgCanvas.jsx'
 import BigButton from '../components/BigButton.jsx'
 import LanguageToggle from '../components/LanguageToggle.jsx'
@@ -17,7 +21,10 @@ import Footer from '../components/Footer.jsx'
 
 const CHART_MAX_POINTS = 300
 const IS_WEB = !Capacitor.isNativePlatform()
-const REST_DURATION_S = 300  // 5 minutes
+const REST_DURATION_S = 300      // 5 minutes
+const FLUSH_INTERVAL_MS = 4000   // how often in-progress RR/ECG buffers are written to local SQLite
+const DISCONNECT_ALERT_MS = 90000 // BLE disconnected this long during a session → local notification
+const BATTERY_PROMPT_KEY = 'neroes_battery_prompt_done_v1'
 
 function fmtTime(s) {
   const m  = Math.floor(s / 60).toString().padStart(2, '0')
@@ -165,13 +172,17 @@ function ModeCard({ icon, title, desc, onClick }) {
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function Record({ participant, onBack }) {
+export default function Record({ participant, onBack, recoveredCount = 0, resumeSession = null }) {
   const { t } = useTranslation()
 
   // ── State (logic unchanged) ──────────────────────────────
   const [bleStatus,    setBleStatus]    = useState('idle')
   const [bleError,     setBleError]     = useState(null)
-  const [phase,        setPhase]        = useState('idle')  // idle|recording|uploading|done
+  // If App.jsx found a local session still sitting in 'recording' state
+  // (Activity/WebView was torn down mid-recording, foreground service kept
+  // going), start straight into the recording UI instead of the picker —
+  // see the resume-setup effect below for the rest of the rehydration.
+  const [phase,        setPhase]        = useState(() => resumeSession ? 'recording' : 'idle')  // idle|recording|uploading|done
   const [elapsed,      setElapsed]      = useState(0)
   const [nRr,          setNRr]          = useState(0)
   const [liveLnRmssd,  setLiveLnRmssd]  = useState(null)  // kept for legacy BLE pill label
@@ -181,40 +192,193 @@ export default function Record({ participant, onBack }) {
   const [uploadError,    setUploadError]    = useState(null)
   const [uploadStatus,   setUploadStatus]   = useState(null)  // 'synced' | 'pending'
   const [sessionSummary, setSessionSummary] = useState(null)
-  const [sessionMode,    setSessionMode]    = useState(null)   // null | 'rest_5min' | 'free'
+  const [sessionMode,    setSessionMode]    = useState(() => resumeSession?.session_type ?? null)   // null | 'rest_5min' | 'free'
   const [liveHrv,        setLiveHrv]        = useState({})    // live metrics snapshot
   // ECG — always attempted, gracefully degrades if PMD unavailable
   const [ecgActive,   setEcgActive]   = useState(false)  // ECG stream actually running
   const [ecgSettling, setEcgSettling] = useState(true)   // first 2 s of signal
   const [ecgCount,    setEcgCount]    = useState(0)      // sample count for display
+  const [showBatteryPrompt, setShowBatteryPrompt] = useState(false)  // one-time background-reliability nudge (Android)
 
   const bleRef                = useRef(null)
   const recorderRef           = useRef(null)
-  const sessionModeRef        = useRef(null)   // mirror of sessionMode for use in callbacks
+  const sessionModeRef        = useRef(resumeSession?.session_type ?? null)   // mirror of sessionMode for use in callbacks
+  const phaseRef              = useRef(resumeSession ? 'recording' : 'idle') // mirror of phase — read by the BLE onReconnected callback, fixed at mount time
+  const initialEcgKickRef     = useRef(false)  // fires resumeEcgAfterReconnect() once on the very first successful connect, to restart ECG when resuming a session
   const autoStoppedRef        = useRef(false)  // guard: prevent double-trigger of auto-stop
-  const sessionStartWallClock = useRef(null)   // wall-clock ms at session start (for elapsed correction on resume)
+  // wall-clock ms at session start (elapsed is always computed from this, never
+  // from a timer — see onRecorderUpdate). Restored from the ORIGINAL start
+  // time when resuming, so elapsed correctly includes time before the reset.
+  const sessionStartWallClock = useRef(resumeSession ? new Date(resumeSession.started_at).getTime() : null)
   // ECG refs (read by canvas RAF loop and stopAndUpload — never trigger re-renders)
   const ecgRecRef      = useRef(null)    // EcgRecorder instance
   const ecgSettlingRef = useRef(true)    // mirrors ecgSettling for use in callbacks
+  const hrBpmRef       = useRef(null)    // mirrors hrBpm — read by flushBuffers' setInterval closure, which never sees state updates
+  const bleStatusRef   = useRef('idle')  // mirrors bleStatus — same stale-closure reason as hrBpmRef, used to show connection state in the notification
+
+  // Crash-safe incremental persistence — see localSessionStore.js
+  const sessionIdRef      = useRef(resumeSession?.id ?? null)   // id of the local SQLite session row for the in-progress recording
+  const rrFlushCursorRef  = useRef(0)      // index of the next un-flushed RR interval, WITHIN THIS JS SESSION's recorder
+  const ecgFlushCursorRef = useRef(0)      // index of the next un-flushed ECG sample, WITHIN THIS JS SESSION's recorder
+  // How many RR/ECG rows already existed in SQLite for this session before
+  // this JS instance started (0 for a fresh recording; >0 when resuming).
+  // The in-memory recorder always starts counting from 0, so every SQLite
+  // write and every "how many total beats so far" display must add this in.
+  const rrSeqBaseRef      = useRef(0)
+  const ecgSeqBaseRef     = useRef(0)
+  const flushIntervalRef  = useRef(null)
+
+  // BLE disconnect watchdog — tracks total time disconnected during a session
+  // (gap_s, uploaded with the session for QA) and fires a local notification
+  // if the band has been unreachable long enough that the participant may
+  // not have noticed the on-screen "reconnecting" pill (e.g. phone in a bag).
+  const disconnectedSinceRef = useRef(null)
+  const gapAccumRef          = useRef(0)
+  const watchdogTimeoutRef   = useRef(null)
+  const watchdogFiredRef     = useRef(false)
+
+  useEffect(() => { phaseRef.current = phase }, [phase])
+  useEffect(() => { bleStatusRef.current = bleStatus }, [bleStatus])
+
+  // Rehydrate a session that survived an Activity/WebView reset while it was
+  // still recording (see App.jsx — this is the resumable orphan it found).
+  // The SQLite rows are the only durable record of what's already been
+  // captured; everything JS-side (the recorder, the ECG buffer, the flush
+  // interval, the foreground notification) has to be rebuilt from scratch.
+  useEffect(() => {
+    if (!resumeSession) return
+    ;(async () => {
+      const { rr, ecg } = await getSessionArrays(resumeSession.id).catch(() => ({ rr: [], ecg: [] }))
+      rrSeqBaseRef.current  = rr.length
+      ecgSeqBaseRef.current = ecg.length
+      setNRr(rr.length)
+      setEcgCount(ecg.length)
+      setElapsed(Math.floor((Date.now() - sessionStartWallClock.current) / 1000))
+
+      gapAccumRef.current           = resumeSession.gap_s || 0
+      disconnectedSinceRef.current  = null
+      watchdogFiredRef.current      = false
+      rrFlushCursorRef.current      = 0
+      ecgFlushCursorRef.current     = 0
+
+      const recorder = new SessionRecorder(onRecorderUpdate)
+      recorderRef.current = recorder
+      recorder.start()
+
+      const ecgRec = new EcgRecorder()
+      ecgRecRef.current      = ecgRec
+      ecgSettlingRef.current = true
+      setEcgSettling(true)
+
+      flushIntervalRef.current = setInterval(flushBuffers, FLUSH_INTERVAL_MS)
+      startForegroundService(resumeSession.session_type)
+      startTicker({ startedAt: sessionStartWallClock.current, sessionType: resumeSession.session_type })
+      activateKeepAwake()
+      // BLE reconnects on its own (see the mount effect below); once
+      // connected, the onStatus handler calls resumeEcgAfterReconnect() to
+      // restart the PMD stream, same as any other mid-session reconnect.
+    })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Resume the ECG stream after a BLE reconnect mid-session. The GATT
+  // disconnect tears down the PMD subscription entirely — HR/RR resume on
+  // their own (see PolarBle's reconnect loop), but ECG does not, so without
+  // this a dropped-and-recovered connection would silently record HR only
+  // for the rest of the session.
+  async function resumeEcgAfterReconnect() {
+    if (phaseRef.current !== 'recording') return
+    ecgSettlingRef.current = true
+    setEcgSettling(true)
+    try {
+      await bleRef.current.startEcg(onEcgSamples)
+      setEcgActive(true)
+    } catch (e) {
+      console.warn('[ECG] resume after reconnect failed:', e.message)
+      setEcgActive(false)
+    }
+  }
+
+  // The persistent notification's live text (elapsed/countdown + bpm) is
+  // ticked entirely natively now — see notificationTicker.js/
+  // NotificationTickerPlugin.java. A first attempt drove it from JS (a
+  // setInterval, then from BLE onHrm events) but Chromium's background timer
+  // throttling and, worse, cases where the WebView itself stops running JS
+  // for stretches while hidden, could still freeze it. A native Handler
+  // sidesteps the WebView entirely, so it can't be affected by that. JS's
+  // only remaining job is pushing bpm/connection status via
+  // updateTickerStatus() (see onHrm/onStatus below) whenever it gets a
+  // chance to run — the ticker keeps using the last value it got even if JS
+  // goes quiet for a while, instead of freezing the whole notification.
+
+  async function flushBuffers() {
+    const sessionId = sessionIdRef.current
+    if (!sessionId) return
+    try {
+      const recorder = recorderRef.current
+      if (recorder) {
+        const rr = recorder.getRrIntervals()
+        const from = rrFlushCursorRef.current
+        if (rr.length > from) {
+          // rrSeqBaseRef offsets past whatever this session already had in
+          // SQLite before this JS instance existed (0 unless resuming) —
+          // without it, a resumed session would overwrite seq 0, 1, 2... on
+          // top of the rows already written before the reset.
+          await appendRr(sessionId, rr.slice(from), rrSeqBaseRef.current + from)
+          rrFlushCursorRef.current = rr.length
+        }
+      }
+      const ecgRec = ecgRecRef.current
+      if (ecgRec) {
+        const all = ecgRec.getAll()
+        const from = ecgFlushCursorRef.current
+        if (all.length > from) {
+          await appendEcg(sessionId, all.slice(from), ecgSeqBaseRef.current + from)
+          ecgFlushCursorRef.current = all.length
+        }
+      }
+    } catch (e) {
+      console.warn('[flushBuffers] failed:', e.message)
+    }
+  }
 
   // ── BLE initialization (logic unchanged) ─────────────────
   useEffect(() => {
     const ble = new PolarBle({
       onStatus: (s) => {
         setBleStatus(s)
+        bleStatusRef.current = s
         if (s === 'error') setBleError(t('error.device_not_found'))
         else setBleError(null)
+        // Push the status change immediately — don't wait for the next
+        // heartbeat, which won't come at all while disconnected. Without
+        // this the ticker would keep showing a stale bpm as if nothing
+        // were wrong right through a disconnect.
+        updateTickerStatus({ bpm: hrBpmRef.current, status: s })
+        // The very first connect() (as opposed to an automatic reconnect,
+        // which already goes through onReconnected) doesn't otherwise start
+        // ECG on its own when resuming a session found already 'recording'
+        // at launch — resumeEcgAfterReconnect() is a no-op unless phase is
+        // already 'recording', so this is harmless for a fresh session.
+        if (s === 'connected' && !initialEcgKickRef.current) {
+          initialEcgKickRef.current = true
+          resumeEcgAfterReconnect()
+        }
       },
       onHrm: ({ hr_bpm, rr_ms }) => {
         setHrBpm(hr_bpm)
+        hrBpmRef.current = hr_bpm
         recorderRef.current?.addBeat(rr_ms, hr_bpm)
         setChartData(prev => [...prev, { t: prev.length, hr: hr_bpm }].slice(-CHART_MAX_POINTS))
         setHrStats(prev => {
           const vals = [...(prev._raw || []), hr_bpm].slice(-CHART_MAX_POINTS)
           return { _raw: vals, min: Math.min(...vals), avg: Math.round(vals.reduce((a,b)=>a+b,0)/vals.length), max: Math.max(...vals) }
         })
+        // Pushes the fresh bpm to the native ticker (see notificationTicker.js).
+        updateTickerStatus({ bpm: hr_bpm, status: bleStatusRef.current })
       },
-      onDisconnect: () => setHrBpm(null),
+      onDisconnect: () => { setHrBpm(null); hrBpmRef.current = null; setEcgActive(false) },
+      onReconnected: resumeEcgAfterReconnect,
     })
     bleRef.current = ble
 
@@ -267,6 +431,66 @@ export default function Record({ participant, onBack }) {
     return () => document.removeEventListener('visibilitychange', onVisibilityChange)
   }, [phase, bleStatus])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── BLE disconnect watchdog — accumulate gap_s, alert if disconnected too long ──
+  useEffect(() => {
+    if (phase !== 'recording') return
+    const isDown = bleStatus === 'reconnecting' || bleStatus === 'error' || bleStatus === 'permission_denied'
+
+    if (isDown) {
+      if (!disconnectedSinceRef.current) {
+        disconnectedSinceRef.current = Date.now()
+        watchdogFiredRef.current = false
+      }
+      if (!watchdogTimeoutRef.current) {
+        watchdogTimeoutRef.current = setTimeout(() => {
+          if (!watchdogFiredRef.current) {
+            watchdogFiredRef.current = true
+            notifyBleDisconnected()
+          }
+        }, DISCONNECT_ALERT_MS)
+      }
+    } else if (bleStatus === 'connected') {
+      if (disconnectedSinceRef.current) {
+        gapAccumRef.current += Math.round((Date.now() - disconnectedSinceRef.current) / 1000)
+        disconnectedSinceRef.current = null
+      }
+      if (watchdogTimeoutRef.current) {
+        clearTimeout(watchdogTimeoutRef.current)
+        watchdogTimeoutRef.current = null
+      }
+    }
+  }, [phase, bleStatus])
+
+  // ── One-time background-reliability nudge (Android) ──────────────────────
+  // A foreground service alone doesn't survive aggressive OEM battery savers —
+  // ask the participant once, right after the first successful pairing, to
+  // exempt the app from battery optimization.
+  useEffect(() => {
+    if (bleStatus !== 'connected') return
+    let cancelled = false
+    ;(async () => {
+      const { value } = await Preferences.get({ key: BATTERY_PROMPT_KEY })
+      if (value || cancelled) return
+      if (await isBatteryOptimizationEnabled()) {
+        if (!cancelled) setShowBatteryPrompt(true)
+      } else {
+        await Preferences.set({ key: BATTERY_PROMPT_KEY, value: '1' })
+      }
+    })()
+    return () => { cancelled = true }
+  }, [bleStatus])
+
+  async function confirmBatteryPrompt() {
+    await requestDisableBatteryOptimization()
+    await Preferences.set({ key: BATTERY_PROMPT_KEY, value: '1' })
+    setShowBatteryPrompt(false)
+  }
+
+  async function dismissBatteryPrompt() {
+    await Preferences.set({ key: BATTERY_PROMPT_KEY, value: '1' })
+    setShowBatteryPrompt(false)
+  }
+
   // ── Handlers ─────────────────────────────────────────────
   async function selectAndStart(mode) {
     primeAudioContext()
@@ -296,9 +520,18 @@ export default function Record({ participant, onBack }) {
     await bleRef.current?.openSettings()
   }
 
-  function onRecorderUpdate({ elapsed_s, n_rr, live_metrics }) {
-    setElapsed(elapsed_s)
-    setNRr(n_rr)
+  function onRecorderUpdate({ n_rr, live_metrics }) {
+    // Elapsed always comes from the wall clock, not the recorder's own
+    // timer — the recorder restarts at 0 on every JS reload (e.g. resuming
+    // a session after the Activity was recreated), but the session's real
+    // elapsed time is anchored to sessionStartWallClock, its original start.
+    if (sessionStartWallClock.current) {
+      setElapsed(Math.floor((Date.now() - sessionStartWallClock.current) / 1000))
+    }
+    // rrSeqBaseRef: beats already in SQLite before this JS instance started
+    // (0 for a fresh recording) — the recorder only counts what it has seen
+    // itself, so the displayed total must add the pre-existing count back in.
+    setNRr(n_rr + rrSeqBaseRef.current)
     if (live_metrics) {
       setLiveHrv(live_metrics)
       setLiveLnRmssd(live_metrics.lnrmssd)
@@ -323,6 +556,17 @@ export default function Record({ participant, onBack }) {
   async function startRecording() {
     autoStoppedRef.current = false
     sessionStartWallClock.current = Date.now()
+
+    const sessionId = crypto.randomUUID()
+    sessionIdRef.current        = sessionId
+    rrFlushCursorRef.current    = 0
+    ecgFlushCursorRef.current   = 0
+    rrSeqBaseRef.current        = 0  // brand-new session — nothing pre-existing to offset past
+    ecgSeqBaseRef.current       = 0
+    disconnectedSinceRef.current = null
+    gapAccumRef.current          = 0
+    watchdogFiredRef.current     = false
+
     const recorder = new SessionRecorder(onRecorderUpdate)
     recorderRef.current = recorder
     recorder.start()
@@ -330,11 +574,26 @@ export default function Record({ participant, onBack }) {
     setChartData([])
     setHrStats({ min: null, avg: null, max: null })
 
-    // Persist session so we can restore if app goes to background
-    saveActiveSession({ mode: sessionModeRef.current, startWallClock: sessionStartWallClock.current })
+    // Create the local (SQLite) session row NOW, before any beat/sample
+    // arrives. This is what makes the recording crash-safe: if the app dies
+    // mid-session, this row — plus whatever was periodically flushed — is
+    // recovered on the next launch instead of being silently lost.
+    const startedAt = new Date(sessionStartWallClock.current)
+    beginSession({
+      id:             sessionId,
+      participant_id: participant.id,
+      session_date:   startedAt.toISOString().slice(0, 10),
+      session_time:   startedAt.toTimeString().slice(0, 8),
+      session_type:   sessionModeRef.current,
+    }).catch(e => console.error('[startRecording] beginSession failed:', e))
+
+    // Periodically flush accumulated RR/ECG data to local SQLite — never
+    // wait until the session ends to persist what's been recorded so far.
+    flushIntervalRef.current = setInterval(flushBuffers, FLUSH_INTERVAL_MS)
 
     // Start Android foreground service (keeps process alive in background; no-op on web/iOS)
     startForegroundService(sessionModeRef.current)
+    startTicker({ startedAt: sessionStartWallClock.current, sessionType: sessionModeRef.current })
 
     // Prevent screen sleep while recording (native plugin on Android/iOS app;
     // Web Wake Lock API as fallback for Bluefy/iOS 16.4+)
@@ -359,8 +618,16 @@ export default function Record({ participant, onBack }) {
   function cancelRecording() {
     autoStoppedRef.current = false
     sessionStartWallClock.current = null
-    clearActiveSession()
+    if (flushIntervalRef.current)  { clearInterval(flushIntervalRef.current); flushIntervalRef.current = null }
+    if (watchdogTimeoutRef.current) { clearTimeout(watchdogTimeoutRef.current); watchdogTimeoutRef.current = null }
+    disconnectedSinceRef.current = null
+    gapAccumRef.current = 0
+    if (sessionIdRef.current) {
+      discardSession(sessionIdRef.current).catch(e => console.warn('[cancelRecording] discardSession failed:', e.message))
+      sessionIdRef.current = null
+    }
     stopForegroundService()
+    stopTicker()
     releaseKeepAwake()
     if (ecgActive) {
       bleRef.current?.stopEcg().catch(() => {})
@@ -400,57 +667,77 @@ export default function Record({ participant, onBack }) {
     setEcgCount(0)
     ecgRecRef.current = null
     recorderRef.current = null
-    clearActiveSession()
+    sessionIdRef.current = null
   }
 
   async function stopAndUpload() {
     const recorder = recorderRef.current
     if (!recorder) return
     recorder.stop()
+    const startedAt = sessionStartWallClock.current ? new Date(sessionStartWallClock.current) : new Date()
     sessionStartWallClock.current = null
-    clearActiveSession()
+    if (flushIntervalRef.current)  { clearInterval(flushIntervalRef.current); flushIntervalRef.current = null }
+    if (watchdogTimeoutRef.current) { clearTimeout(watchdogTimeoutRef.current); watchdogTimeoutRef.current = null }
     stopForegroundService()
+    stopTicker()
     releaseKeepAwake()
     setPhase('uploading')
     setUploadError(null)
 
-    // ── Collect ECG before any await (samples stop arriving after stopEcg) ──
-    let ecgSamples = []
     if (ecgActive) {
       try { await bleRef.current.stopEcg() } catch (_) {}
-      ecgSamples = ecgRecRef.current?.getAll() ?? []
       setEcgActive(false)
     }
 
-    const sessionId = crypto.randomUUID()
-    const rr        = recorder.getRrIntervals()
-    const metrics   = recorder.getMetrics()
-    const durationS = recorder.getDurationS()
-    const now       = new Date()
+    const sessionId = sessionIdRef.current
+    // Duration is always wall-clock, anchored to the session's true start —
+    // never the recorder's own timer, which restarts at 0 whenever the JS
+    // context reloads (e.g. resuming after the Activity was recreated).
+    const durationS = Math.max(0, Math.round((Date.now() - startedAt.getTime()) / 1000))
 
-    const sessionData = {
-      id:             sessionId,
-      participant_id: participant.id,
-      session_date:   now.toISOString().slice(0, 10),
-      session_time:   now.toTimeString().slice(0, 8),
-      duration_s:     durationS,
-      rr_intervals:   rr,
-      metrics,
-      session_type:   sessionModeRef.current,
-      has_ecg:        ecgSamples.length > 0,
-      ecg_samples:    ecgSamples,   // stored locally; uploaded separately to ecg_samples table
+    // gap_s: total time the band was disconnected during this session,
+    // including any disconnect episode still ongoing right at stop time.
+    let gapS = gapAccumRef.current
+    if (disconnectedSinceRef.current) {
+      gapS += Math.round((Date.now() - disconnectedSinceRef.current) / 1000)
+      disconnectedSinceRef.current = null
     }
 
-    // ── Step 1: Always save locally first (includes ECG data) ─────────────────
+    // ── Step 1: flush whatever hasn't reached local SQLite yet, then read
+    //    back the FULL rr/ecg arrays from there — SQLite, not the in-memory
+    //    recorder/ECG buffer, is the only complete record when a session was
+    //    resumed (those only ever know about data collected since the last
+    //    JS reload) — then finalize the local session row. ─────────────────
+    let rr = []
+    let ecgSamples = []
+    let metrics = {}
     let localSaved = false
     try {
-      await saveSessionLocally(sessionData)
+      await flushBuffers()
+      const arrays = await getSessionArrays(sessionId)
+      rr = arrays.rr
+      ecgSamples = arrays.ecg
+      metrics = computeSessionMetrics(rr)
+      await finishSession(sessionId, { duration_s: durationS, metrics, has_ecg: ecgSamples.length > 0, gap_s: gapS })
       localSaved = true
     } catch (e) {
       console.error('[stopAndUpload] local save failed:', e)
     }
 
-    // ── Step 2: Try Supabase upload ───────────────────────────────────────────
+    const sessionData = {
+      id:             sessionId,
+      participant_id: participant.id,
+      session_date:   startedAt.toISOString().slice(0, 10),
+      session_time:   startedAt.toTimeString().slice(0, 8),
+      duration_s:     durationS,
+      rr_intervals:   rr,
+      metrics,
+      session_type:   sessionModeRef.current,
+      has_ecg:        ecgSamples.length > 0,
+      gap_s:          gapS,
+    }
+
+    // ── Step 2: Try Supabase upload right away (best case: still online) ────
     let remoteSynced = false
     try {
       await uploadSessionRecord(sessionData)
@@ -463,15 +750,29 @@ export default function Record({ participant, onBack }) {
       }
       if (localSaved) await markSynced(sessionId)
     } catch (_) {
-      // No internet — session (and ECG) stays pending, synced via ParticipantSelect
+      // No internet — session (and ECG) stays pending, synced on next app launch
+      // or as soon as the network listener in App.jsx sees connectivity return.
+    }
+
+    // Notify: only one buzz per session. If it went straight to Supabase,
+    // that's the meaningful "done" signal; otherwise confirm it's at least
+    // safe on the phone — the "sent" notification follows later, from
+    // wherever the deferred sync actually succeeds (App.jsx).
+    if (remoteSynced) {
+      notifySessionsSynced(1)
+    } else if (localSaved) {
+      notifySessionSaved()
     }
 
     // ── Step 3: Critical failure (neither local nor remote worked) ────────────
+    // Keep sessionIdRef intact so a retry reuses the same local row instead
+    // of orphaning the data already flushed to it.
     if (!localSaved && !remoteSynced) {
       setUploadError(t('error.save_failed'))
       setPhase('recording')
       return
     }
+    sessionIdRef.current = null
 
     // Beep + vibrate only on auto-stop (5-min session reached its target)
     if (autoStoppedRef.current) playSessionEndAlert()
@@ -549,6 +850,41 @@ export default function Record({ participant, onBack }) {
         <div style={{ marginBottom: 20 }}>
           <BlePill status={bleStatus} error={bleError} t={t} />
         </div>
+
+        {/* Recovered-sessions notice — surfaced once, right after login, for
+            sessions rescued from a crash/kill during a previous recording */}
+        {recoveredCount > 0 && phase === 'idle' && (
+          <div style={{
+            background: 'var(--warning-light, #FFFBEB)', border: '1.5px solid var(--warning, #D97706)',
+            borderRadius: 'var(--r-md)', padding: '12px 16px', marginBottom: 16,
+            color: 'var(--warning, #D97706)', fontSize: '.85rem', fontWeight: 600,
+          }}>
+            {t('session_status.recovered_banner', { count: recoveredCount })}
+          </div>
+        )}
+
+        {/* One-time background-reliability nudge (Android battery optimization) */}
+        {showBatteryPrompt && (
+          <div style={{
+            background: '#FFF7ED', border: '1.5px solid var(--warning, #D97706)',
+            borderRadius: 'var(--r-md)', padding: '16px 18px', marginBottom: 16,
+          }}>
+            <p style={{ color: 'var(--text-1)', fontWeight: 700, margin: '0 0 4px' }}>
+              {t('battery.prompt_title')}
+            </p>
+            <p style={{ color: 'var(--text-3)', fontSize: '.85rem', margin: '0 0 12px', lineHeight: 1.45 }}>
+              {t('battery.prompt_body')}
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <BigButton variant="secondary" onClick={confirmBatteryPrompt}>
+                {t('battery.prompt_confirm')}
+              </BigButton>
+              <BigButton variant="ghost" onClick={dismissBatteryPrompt}>
+                {t('battery.prompt_dismiss')}
+              </BigButton>
+            </div>
+          </div>
+        )}
 
         {/* ══ IDLE ══════════════════════════════════════════ */}
         {phase === 'idle' && (

@@ -8,13 +8,13 @@
   "auth": {
     "title": "Entrar",
     "subtitle": "Estudo HE26 · Polar H10",
-    "email_label": "Email",
+    "username_label": "Utilizador",
     "password_label": "Palavra-passe",
     "sign_in": "Entrar",
     "signing_in": "A entrar...",
     "show_password": "Mostrar palavra-passe",
     "hide_password": "Esconder palavra-passe",
-    "error_invalid": "Email ou palavra-passe incorretos",
+    "error_invalid": "Utilizador ou palavra-passe incorretos",
     "security_badge": "Autenticação segura · Supabase"
   },
   "lang": {
@@ -100,6 +100,13 @@
     "saved_local": "Guardado no telemóvel",
     "saved_synced": "Sessão guardada ✓",
     "pending_sync": "{{count}} sessão(ões) por sincronizar",
-    "sync_now": "Sincronizar agora"
+    "sync_now": "Sincronizar agora",
+    "recovered_banner": "{{count}} sessão(ões) anterior(es) recuperada(s) (dados parciais) — foi/foram guardada(s) e vai/vão sincronizar em breve."
+  },
+  "battery": {
+    "prompt_title": "Gravação em segundo plano",
+    "prompt_body": "Para a banda continuar a gravar com o telemóvel no bolso ou bloqueado, desativa a otimização de bateria para esta app.",
+    "prompt_confirm": "Desativar otimização de bateria",
+    "prompt_dismiss": "Agora não"
   }
 }

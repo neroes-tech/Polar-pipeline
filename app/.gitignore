@@ -9,8 +9,37 @@ dist/
 .env.local
 .env.*.local
 
-# Native Android project (built locally via Android Studio + sync_to_windows.sh)
-android/
+# Native Android/iOS projects (built locally — Android Studio/Xcode +
+# sync_to_windows.sh / rsync to a Mac). Both trees are otherwise regenerated
+# by `npx cap sync`, EXCEPT the hand-written files below, which no tool can
+# recreate — losing them means redoing real native engineering from scratch,
+# so they're tracked even though the rest of the tree isn't.
+android/*
+!android/app/
+android/app/*
+!android/app/src/
+android/app/src/*
+!android/app/src/main/
+android/app/src/main/*
+!android/app/src/main/AndroidManifest.xml
+!android/app/src/main/java/
+android/app/src/main/java/*
+!android/app/src/main/java/com/
+android/app/src/main/java/com/*
+!android/app/src/main/java/com/neroes/
+android/app/src/main/java/com/neroes/*
+!android/app/src/main/java/com/neroes/hrv/
+android/app/src/main/java/com/neroes/hrv/*
+!android/app/src/main/java/com/neroes/hrv/MainActivity.java
+!android/app/src/main/java/com/neroes/hrv/NotificationTickerPlugin.java
+
+ios/*
+!ios/App/
+ios/App/*
+!ios/App/App/
+ios/App/App/*
+!ios/App/App/Info.plist
+!ios/App/Podfile
 
 # Capacitor cache
 .capacitor/

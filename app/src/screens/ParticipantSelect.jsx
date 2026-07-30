@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { getParticipants, uploadSessionRecord, uploadEcgSamples } from '../lib/supabase.js'
-import { getPendingCount, syncPending } from '../lib/offlineQueue.js'
+import { getPendingCount, syncPending } from '../lib/localSessionStore.js'
 import LanguageToggle from '../components/LanguageToggle.jsx'
 import BigButton from '../components/BigButton.jsx'
 

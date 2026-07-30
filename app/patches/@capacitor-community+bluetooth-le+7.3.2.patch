@@ -1,0 +1,50 @@
+diff --git a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift b/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift
+index fce4b03..a3f17d7 100644
+--- a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift
++++ b/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift
+@@ -31,12 +31,44 @@ class DeviceManager: NSObject, CBCentralManagerDelegate {
+     private var manufacturerDataFilters: [ManufacturerDataFilter]?
+     private var serviceDataFilters: [ServiceDataFilter]?
+ 
++    // NEROES PATCH (see patches/@capacitor-community+bluetooth-le+*.patch):
++    // without a restore identifier, iOS never relaunches this app in the
++    // background to keep handling a Polar H10 connection if the OS decides
++    // to terminate the process outright while backgrounded (distinct from
++    // just suspending it — termination can happen under memory pressure
++    // even with the bluetooth-central background mode declared). The
++    // restore identifier + willRestoreState below is what tells iOS "wake
++    // me back up for this" — the documented mechanism for exactly this
++    // (Core Bluetooth Background Processing for iOS Apps, Apple docs).
++    private static let restoreIdentifier = "neroes-ble-central-restore"
++
+     init(_ viewController: UIViewController?, _ displayStrings: [String: String], _ callback: @escaping Callback) {
+         super.init()
+         self.viewController = viewController
+         self.displayStrings = displayStrings
+         self.callbackMap["initialize"] = callback
+-        self.centralManager = CBCentralManager(delegate: self, queue: DispatchQueue.main)
++        self.centralManager = CBCentralManager(
++            delegate: self,
++            queue: DispatchQueue.main,
++            options: [CBCentralManagerOptionRestoreIdentifierKey: DeviceManager.restoreIdentifier]
++        )
++    }
++
++    // NEROES PATCH: called when iOS relaunches the app specifically to hand
++    // back Bluetooth state after the process was terminated while
++    // backgrounded. Re-wraps every peripheral iOS is giving back into a
++    // Device (which re-attaches itself as the CBPeripheralDelegate) so
++    // notifications already subscribed to before termination (HR, PMD/ECG)
++    // resume flowing the moment this fires — without this, the peripheral
++    // objects iOS restores would have no delegate, and every characteristic
++    // notification would silently go nowhere.
++    func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
++        guard let peripherals = dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral] else { return }
++        for peripheral in peripherals {
++            let device = Device(peripheral)
++            self.discoveredDevices[device.getId()] = device
++            log("Restored peripheral from background relaunch:", peripheral.name ?? "Unknown", peripheral.identifier.uuidString)
++        }
+     }
+ 
+     func setDisplayStrings(_ displayStrings: [String: String]) {

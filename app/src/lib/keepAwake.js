@@ -4,17 +4,24 @@ let _plugin = null
 let _tried  = false
 let _webLock = null   // sentinel for Web Wake Lock API (web / Bluefy / iOS)
 
+// Returns { plugin } rather than the plugin object directly. Capacitor's
+// plugin proxy answers ANY property access with a callable (including
+// `.then`), so an async function that resolves directly to the plugin
+// object looks "thenable" to the JS engine — it tries to unwrap it by
+// calling `plugin.then(...)`, which Capacitor treats as a call to a native
+// method literally named "then" and rejects with "X.then() is not
+// implemented". Wrapping in a plain object avoids that trap entirely.
 async function _load() {
-  if (_tried) return _plugin
+  if (_tried) return { plugin: _plugin }
   _tried = true
-  if (!Capacitor.isNativePlatform()) return null
+  if (!Capacitor.isNativePlatform()) return { plugin: null }
   try {
     const mod = await import('@capacitor-community/keep-awake')
     _plugin = mod.KeepAwake
   } catch (e) {
     console.warn('[KeepAwake] plugin not available:', e.message)
   }
-  return _plugin
+  return { plugin: _plugin }
 }
 
 // Prevent the screen from sleeping.
@@ -23,7 +30,7 @@ async function _load() {
 // browser when the page loses visibility, which is why activateKeepAwake() must
 // be called again on every visibilitychange back to 'visible'.
 export async function activateKeepAwake() {
-  const plugin = await _load()
+  const { plugin } = await _load()
   if (plugin) {
     try { await plugin.keepAwake() } catch (e) {
       console.warn('[KeepAwake] keepAwake() failed:', e.message)
@@ -53,7 +60,7 @@ export async function activateKeepAwake() {
 // Allow the screen to sleep normally. Always safe to call, even if
 // activateKeepAwake() was never called or the lock was already released.
 export async function releaseKeepAwake() {
-  const plugin = await _load()
+  const { plugin } = await _load()
   if (plugin) {
     try { await plugin.allowSleep() } catch (e) {
       console.warn('[KeepAwake] allowSleep() failed:', e.message)

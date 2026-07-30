@@ -1,8 +1,27 @@
 import { useEffect, useState } from 'react'
+import { Capacitor } from '@capacitor/core'
 import { supabase, getCurrentParticipant, signOut, uploadSessionRecord, uploadEcgSamples, clearLocalAuth } from './lib/supabase.js'
-import { syncPending, clearAllLocalSessions } from './lib/offlineQueue.js'
+import { initLocalStore, recoverOrphanedSessions, getOrphanedSessions, syncPending, clearAllLocalSessions } from './lib/localSessionStore.js'
+import { notifySessionsSynced } from './lib/localAlerts.js'
 import Login from './screens/Login.jsx'
 import Record from './screens/Record.jsx'
+
+// Guards concurrent sync attempts (app-launch sync + a network reconnect
+// firing at nearly the same time) from both racing over the same rows.
+let _syncing = false
+
+async function syncNowAndNotify() {
+  if (_syncing) return
+  _syncing = true
+  try {
+    const { synced } = await syncPending(uploadAll)
+    if (synced > 0) notifySessionsSynced(synced)
+  } catch (_) {
+    // offline again mid-sync — sessions stay 'pending', retried on the next trigger
+  } finally {
+    _syncing = false
+  }
+}
 
 // Debug: window.__clearAll() — clears auth + all local sessions for a clean test
 if (typeof window !== 'undefined') {
@@ -13,7 +32,10 @@ if (typeof window !== 'undefined') {
   }
 }
 
-// Combined upload wrapper: handles both session data and ECG samples
+// Combined upload wrapper: handles both session data and ECG samples.
+// record.recovered / record.gap_s come from localSessionStore.getPendingSessions()
+// (recovered = rescued from a crash/kill; gap_s = total BLE disconnect time
+// during the session) and are forwarded to Supabase for QA visibility.
 async function uploadAll(record) {
   await uploadSessionRecord(record)
   if (record.ecg_samples?.length > 0) {
@@ -48,18 +70,45 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  const [screen,      setScreen]      = useState('loading')  // loading | login | record
-  const [participant, setParticipant] = useState(null)
+  const [screen,        setScreen]        = useState('loading')  // loading | login | record
+  const [participant,   setParticipant]   = useState(null)
+  const [recoveredCount, setRecoveredCount] = useState(0)
+  const [resumeSession,  setResumeSession]  = useState(null)  // an in-progress local session to resume live, instead of closing it out
 
   async function loadParticipant() {
     setScreen('loading')
     try {
+      await initLocalStore()
       const p = await getCurrentParticipant()
+
+      // If the app's Activity/WebView got torn down mid-recording (Android
+      // reclaiming memory from a backgrounded app — a foreground service
+      // prevents the PROCESS from dying, but not this), there's a session
+      // still sitting in 'recording' state. Resume it live in Record.jsx
+      // instead of unconditionally closing it out as "done" — the whole
+      // point of surviving in the pyramid/desert is picking back up where
+      // it left off, not silently starting a fresh, disconnected session.
+      let resumable = null
+      if (p) {
+        const orphans = await getOrphanedSessions().catch(() => [])
+        resumable = orphans.find(o => o.participant_id === p.id) || null
+      }
+
+      // Any OTHER orphaned session (a stale one from a different participant,
+      // or a genuine leftover the app couldn't resume) still gets finalized
+      // as before — this is the crash-safety net, unchanged.
+      const recovered = await recoverOrphanedSessions(resumable?.id ?? null).catch(e => {
+        console.warn('[App] recoverOrphanedSessions failed:', e.message)
+        return 0
+      })
+      if (recovered > 0) setRecoveredCount(recovered)
+
       if (p) {
         setParticipant(p)
+        setResumeSession(resumable)
         setScreen('record')
         // Silently flush any pending sessions now that we're online + authenticated
-        syncPending(uploadAll).catch(() => {})
+        syncNowAndNotify()
       } else {
         setScreen('login')
       }
@@ -91,7 +140,23 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-sync the moment connectivity returns — previously this only ran on
+  // app launch or a manual tap, so a session recorded fully offline (no
+  // network at all inside a pyramid/desert) would sit "pending" until the
+  // investigator remembered to reopen the app once back in range.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    let handle
+    ;(async () => {
+      const { Network } = await import('@capacitor/network')
+      handle = await Network.addListener('networkStatusChange', (status) => {
+        if (status.connected) syncNowAndNotify()
+      })
+    })()
+    return () => { handle?.remove() }
+  }, [])
+
   if (screen === 'loading') return <LoadingScreen />
   if (screen === 'login')   return <Login />
-  return <Record participant={participant} onBack={handleLogout} />
+  return <Record participant={participant} onBack={handleLogout} recoveredCount={recoveredCount} resumeSession={resumeSession} />
 }

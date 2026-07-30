@@ -72,25 +72,100 @@ export async function signIn(email, password) {
   return data
 }
 
+const SHARED_LOGIN_PASSWORD = import.meta.env.VITE_SHARED_LOGIN_PASSWORD
+
+/**
+ * Resolves a simplified login field (just "01".."31", or "formador") into
+ * a real email + password pair, matching how scripts/create_auth_users.py
+ * actually provisioned these accounts:
+ *   - "01".."31" → polar01@healme.pt.."polar31@healme.pt", using the shared
+ *     password every one of those accounts was created with. Returns
+ *     needsPassword: false — the caller must NOT show a password field.
+ *   - "formador" → formador@healme.pt, its OWN real password — that account
+ *     was set up separately and deliberately keeps a real password, so
+ *     needsPassword: true.
+ * Returns null for anything else (invalid input).
+ */
+export function resolveLoginIdentity(usernameRaw) {
+  const username = (usernameRaw || '').trim().toLowerCase()
+  if (!username) return null
+
+  if (username === 'formador') {
+    return { email: 'formador@healme.pt', needsPassword: true }
+  }
+
+  const digits = username.replace(/\D/g, '')
+  const n = Number(digits)
+  if (digits && n >= 1 && n <= 31) {
+    return {
+      email:         `polar${String(n).padStart(2, '0')}@healme.pt`,
+      needsPassword: false,
+      password:      SHARED_LOGIN_PASSWORD,
+    }
+  }
+
+  return null
+}
+
 export async function signOut() {
   await supabase.auth.signOut()
 }
 
+const PARTICIPANT_CACHE_KEY = 'neroes_participant_cache'
+
 /**
  * Returns the participant row for the currently logged-in user.
  * RLS ensures only the authenticated user's own row is returned.
- * Returns null if not logged in or no matching participant.
+ * Returns null if not logged in (no session anywhere, cached or otherwise).
+ *
+ * Deliberately offline-tolerant: reopening the app with no network (the
+ * desert/pyramid case) must never force a fresh login just because Supabase
+ * is unreachable right now. getSession() reads the persisted session from
+ * local storage — no network call — unlike getUser(), which ALWAYS hits the
+ * network to revalidate. Fixed a real bug where getUser() failing offline
+ * bubbled up through App.jsx's loadParticipant() and forced the login
+ * screen, skipping the whole resume-session flow (which never even got a
+ * chance to run) even though the session was perfectly valid on disk.
  */
 export async function getCurrentParticipant() {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data, error } = await supabase
-    .from('participants')
-    .select('id, code, name, device_id')
-    .eq('auth_user_id', user.id)
-    .single()
-  if (error || !data) return null
-  return data
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    const user = session?.user
+    if (!user) return null
+
+    const { data, error } = await supabase
+      .from('participants')
+      .select('id, code, name, device_id')
+      .eq('auth_user_id', user.id)
+      .single()
+    if (error || !data) throw error || new Error('participant not found')
+
+    // Cache for the next launch, in case that one happens offline.
+    await Preferences.set({
+      key:   PARTICIPANT_CACHE_KEY,
+      value: JSON.stringify({ userId: user.id, participant: data }),
+    })
+    return data
+  } catch (e) {
+    console.warn('[getCurrentParticipant] live fetch failed, trying cache:', e?.message)
+    return await getCachedParticipant()
+  }
+}
+
+async function getCachedParticipant() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    const userId = session?.user?.id
+    if (!userId) return null
+    const { value } = await Preferences.get({ key: PARTICIPANT_CACHE_KEY })
+    if (!value) return null
+    const cached = JSON.parse(value)
+    // Only trust the cache if it belongs to the currently-signed-in user —
+    // matters if the device ever gets re-provisioned for a different participant.
+    return cached.userId === userId ? cached.participant : null
+  } catch (_) {
+    return null
+  }
 }
 
 export async function getParticipants() {
@@ -111,7 +186,7 @@ export async function getParticipants() {
  *
  * Error code 23505 (duplicate key) is treated as success.
  */
-export async function uploadSessionRecord({ id, participant_id, session_date, session_time, duration_s, rr_intervals, metrics, session_type, has_ecg = false, notes = null }) {
+export async function uploadSessionRecord({ id, participant_id, session_date, session_time, duration_s, rr_intervals, metrics, session_type, has_ecg = false, recovered = false, gap_s = 0, notes = null }) {
   // Log auth state — confirms token is active when upload fires
   const { data: { session: authSession } } = await supabase.auth.getSession()
   console.log(
@@ -143,6 +218,8 @@ export async function uploadSessionRecord({ id, participant_id, session_date, se
       mean_rr_ms:           metrics.mean_rr_ms,
       session_type,
       has_ecg,
+      recovered,
+      gap_s,
       notes,
     })
 

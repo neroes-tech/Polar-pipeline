@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS sessions (
     has_ecg                 BOOLEAN     NOT NULL DEFAULT FALSE,
     sync_status             TEXT        NOT NULL DEFAULT 'synced'
                                         CHECK (sync_status IN ('synced', 'pending', 'error')),
+    -- ── FASE B additions (offline-first resilience) ───────────
+    -- recovered = TRUE when this session was rescued from an app
+    -- crash/kill mid-recording (see app/src/lib/localSessionStore.js
+    -- recoverOrphanedSessions) instead of stopped cleanly by the user.
+    -- gap_s = total seconds the BLE connection to the band was down
+    -- during the session — lets the team spot data-quality issues
+    -- without re-deriving it from raw RR/ECG timestamps.
+    recovered               BOOLEAN     NOT NULL DEFAULT FALSE,
+    gap_s                   INTEGER     NOT NULL DEFAULT 0,
     -- ─────────────────────────────────────────────────────────
     uploaded_at             TIMESTAMPTZ DEFAULT now(),
     notes                   TEXT

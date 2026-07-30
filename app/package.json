@@ -6,16 +6,21 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@capacitor-community/bluetooth-le": "^7.3.2",
     "@capacitor-community/keep-awake": "^7.1.0",
+    "@capacitor-community/sqlite": "^7.0.1",
     "@capacitor/android": "^7.0.0",
     "@capacitor/core": "^7.0.0",
     "@capacitor/haptics": "^7.0.1",
-    "@capacitor/ios": "^7.0.0",
+    "@capacitor/ios": "^7.6.8",
+    "@capacitor/local-notifications": "^7.0.1",
+    "@capacitor/network": "^7.0.4",
     "@capacitor/preferences": "^7.0.4",
+    "@capawesome-team/capacitor-android-battery-optimization": "^7.0.0",
     "@capawesome-team/capacitor-android-foreground-service": "^7.0.1",
     "@supabase/supabase-js": "^2.43.0",
     "i18next": "^23.11.5",
@@ -28,6 +33,7 @@
   "devDependencies": {
     "@capacitor/cli": "^7.0.0",
     "@vitejs/plugin-react": "^4.3.1",
+    "patch-package": "^8.0.1",
     "vite": "^5.4.0",
     "vite-plugin-pwa": "^0.20.0",
     "workbox-window": "^7.1.0"

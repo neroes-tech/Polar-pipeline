@@ -40,10 +40,10 @@ __pycache__/
 dist/
 build/
 
-# ── Pasta nativa Android ──────────────────────────────────────
-# Gerada localmente via "npx cap add android" + sync_to_windows.sh
-# Não necessária para deploy da PWA no Vercel
-app/android/
+# ── Pastas nativas Android/iOS ─────────────────────────────────
+# Geradas localmente via "npx cap add android/ios" + sync.
+# Regras detalhadas (incl. exceções para ficheiros escritos à mão,
+# que nenhuma tool regenera) vivem em app/.gitignore.
 .capacitor/
 
 # ── Python / Jupyter ──────────────────────────────────────────
