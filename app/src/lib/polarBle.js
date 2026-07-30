@@ -100,11 +100,21 @@ export function parsePmdEcgFrame(dataView) {
 }
 
 export class PolarBle {
-  constructor({ onStatus, onHrm, onDisconnect, onReconnected }) {
+  constructor({ onStatus, onHrm, onDisconnect, onReconnected, deviceIdHint }) {
     this._onStatus      = onStatus
     this._onHrm         = onHrm
     this._onDisconnect   = onDisconnect
     this._onReconnected = onReconnected || (() => {})
+    // The participant's assigned band serial (participants.device_id, e.g.
+    // "154D5932" — embedded in the advertised name "Polar H10 154D5932").
+    // A test phone that's been bonded to several different bands over time
+    // (this fleet's Android test device) will have MULTIPLE "Polar H10 ..."
+    // entries in getBondedDevices() — without this, _findKnownDeviceId()
+    // silently grabbed whichever one came first and kept retrying THAT one
+    // forever, never touching the band actually assigned to this session.
+    // A single-band-per-phone field deployment never hits this, but it's
+    // still a real bug for band swaps/replacements later.
+    this._deviceIdHint  = deviceIdHint ? String(deviceIdHint).toLowerCase() : null
     this._reconnecting     = false
     this._reconnectAttempt = 0
     // Set on explicit disconnect() so an in-flight retry loop stops instead
@@ -399,21 +409,35 @@ export class PolarBle {
     // Remember this device so the NEXT app launch can reconnect silently on
     // iOS too (see _findKnownDeviceId). Harmless no-op benefit on Android,
     // which already has getBondedDevices() as its own persistent record.
-    Preferences.set({ key: DEVICE_ID_KEY, value: this._deviceId }).catch(() => {})
+    // Namespaced per band so a phone that's seen multiple bands (band
+    // swaps/replacements) doesn't overwrite one band's remembered id with
+    // another's.
+    Preferences.set({ key: this._prefsKey(), value: this._deviceId }).catch(() => {})
+  }
+
+  _prefsKey() {
+    return this._deviceIdHint ? `${DEVICE_ID_KEY}:${this._deviceIdHint}` : DEVICE_ID_KEY
   }
 
   /** Returns a deviceId we can connect to directly without a picker, or null if none is known. */
   async _findKnownDeviceId() {
     if (Capacitor.getPlatform() === 'android') {
       const bonded = await BleClient.getBondedDevices()
-      const h10 = bonded.find(d => (d.name || '').toLowerCase().includes('polar'))
+      // With a specific band assigned (participants.device_id, e.g.
+      // "154D5932"), match THAT exact band — a phone bonded to several
+      // Polar H10s over time (band swaps, or this fleet's shared test
+      // phone) must not silently grab whichever one happens to be first.
+      // Falls back to "any Polar" only when no specific band is known.
+      const h10 = this._deviceIdHint
+        ? bonded.find(d => (d.name || '').toLowerCase().includes(this._deviceIdHint))
+        : bonded.find(d => (d.name || '').toLowerCase().includes('polar'))
       return h10 ? h10.deviceId : null
     }
     // iOS (and web, though web uses a separate _connectWeb path entirely):
     // getBondedDevices() doesn't exist here — CoreBluetooth doesn't let apps
     // enumerate paired devices for privacy reasons. getDevices([id]) can
     // still retrieve a specific device we already know the id of.
-    const { value: savedId } = await Preferences.get({ key: DEVICE_ID_KEY })
+    const { value: savedId } = await Preferences.get({ key: this._prefsKey() })
     if (!savedId) return null
     const known = await BleClient.getDevices([savedId])
     return known.length > 0 ? known[0].deviceId : null

@@ -345,6 +345,7 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
   // ── BLE initialization (logic unchanged) ─────────────────
   useEffect(() => {
     const ble = new PolarBle({
+      deviceIdHint: participant.device_id,
       onStatus: (s) => {
         setBleStatus(s)
         bleStatusRef.current = s
