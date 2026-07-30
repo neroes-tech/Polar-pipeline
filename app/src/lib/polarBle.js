@@ -17,10 +17,16 @@ const DEVICE_ID_KEY = 'neroes_ble_device_id'
 // autoConnect=true (patched into the plugin's connectGatt call, see
 // patches/@capacitor-community+bluetooth-le+7.3.2.patch) hands reconnection
 // to the OS Bluetooth stack itself, which keeps retrying silently in the
-// background with no JS timer involved. A long timeout here is what a real
-// "always connected" band needs — the default 10s timeout would otherwise
-// force-close the pending native connection attempt and lose that benefit.
-const NATIVE_AUTOCONNECT_TIMEOUT_MS = 24 * 60 * 60 * 1000
+// background with no JS timer involved — Android-only, see the platform
+// check in _reconnectNativeAuto() below; iOS has no such concept, and the
+// plugin serializes ALL BLE calls through one queue (bleClient.js's
+// this.queue(...)), so a pending connect() here blocks every other BLE call
+// (disconnect, startNotifications, stopEcg...) until it settles. Bounded to
+// under a minute rather than left open-ended, and on timeout the plugin
+// closes the underlying GATT object (see setConnectionTimeout in the
+// patched Device.kt) — so this can't hang the queue indefinitely; the
+// fallback JS retry loop below picks up from there.
+const NATIVE_AUTOCONNECT_TIMEOUT_MS = 60 * 1000
 
 // ── HRM (Heart Rate Measurement) ─────────────────────────────────────────────
 const HRM_SERVICE     = '0000180d-0000-1000-8000-00805f9b34fb'
@@ -439,6 +445,17 @@ export class PolarBle {
   async _reconnectNativeAuto() {
     if (this._stopReconnecting || !this._deviceId) { this._reconnecting = false; return }
     this._reconnecting = true
+
+    // autoConnect is an Android BluetoothGatt concept with no iOS
+    // equivalent — passing it there gains nothing and just spends this
+    // platform's turn holding the BLE call queue for no benefit. iOS keeps
+    // using the plain short-timeout retry loop, unchanged from before.
+    if (Capacitor.getPlatform() !== 'android') {
+      this._onStatus('reconnecting')
+      this._scheduleNativeReconnect()
+      return
+    }
+
     try {
       await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect(), {
         autoConnect: true,
@@ -453,9 +470,9 @@ export class PolarBle {
       this._onStatus('connected')
       this._onReconnected()
     } catch (_) {
-      // The native attempt itself failed to even start (e.g. Bluetooth
-      // adapter off) — fall back to the short-interval JS retry loop rather
-      // than leaving the band disconnected with nothing retrying at all.
+      // The native attempt itself failed or timed out — fall back to the
+      // short-interval JS retry loop rather than leaving the band
+      // disconnected with nothing retrying at all.
       this._onStatus('reconnecting')
       this._scheduleNativeReconnect()
     }
