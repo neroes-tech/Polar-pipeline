@@ -57,6 +57,8 @@
     "mode_rest_desc": "5:00 countdown timer — stops automatically",
     "mode_free": "Free session",
     "mode_free_desc": "No time limit — you stop when you're ready",
+    "mode_questionnaire": "Questionnaire",
+    "mode_questionnaire_desc": "Opens the morning questionnaire, already signed in",
     "mode_change": "Change"
   },
   "recording": {
@@ -90,7 +92,8 @@
     "permission_denied": "The app does not have permission to use Bluetooth.",
     "permission_hint": "Go to Settings → Apps → Neroes HRV → Permissions → Bluetooth and select Allow. Then return to the app and connect the band.",
     "scan_blocked": "This band hasn't been paired with this phone yet.",
-    "scan_blocked_hint": "Go to your phone's Settings → Bluetooth and pair the Polar H10 band directly there (like a pair of headphones). Then come back to the app and tap \"Connect band\" — from then on it connects automatically every time."
+    "scan_blocked_hint": "Go to your phone's Settings → Bluetooth and pair the Polar H10 band directly there (like a pair of headphones). Then come back to the app and tap \"Connect band\" — from then on it connects automatically every time.",
+    "questionnaire_failed": "Couldn't open the questionnaire. Please try again."
   },
   "ecg": {
     "toggle": "Record ECG",

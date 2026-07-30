@@ -57,6 +57,8 @@
     "mode_rest_desc": "Timer regressivo de 5:00 — termina automaticamente",
     "mode_free": "Sessão livre",
     "mode_free_desc": "Sem limite de tempo — terminas quando quiseres",
+    "mode_questionnaire": "Questionário",
+    "mode_questionnaire_desc": "Abre o questionário matinal, já com sessão iniciada",
     "mode_change": "Mudar"
   },
   "recording": {
@@ -90,7 +92,8 @@
     "permission_denied": "A app não tem permissão para usar o Bluetooth.",
     "permission_hint": "Vai a Definições → Aplicações → Neroes HRV → Permissões → Bluetooth e seleciona Permitir. Depois volta à app e liga a banda.",
     "scan_blocked": "Esta banda ainda não foi emparelhada com este telemóvel.",
-    "scan_blocked_hint": "Vai a Definições → Bluetooth do telemóvel e emparelha a banda Polar H10 diretamente aí (como um par de auscultadores). Depois volta à app e toca em \"Ligar à banda\" — a partir daí liga-se sempre automaticamente."
+    "scan_blocked_hint": "Vai a Definições → Bluetooth do telemóvel e emparelha a banda Polar H10 diretamente aí (como um par de auscultadores). Depois volta à app e toca em \"Ligar à banda\" — a partir daí liga-se sempre automaticamente.",
+    "questionnaire_failed": "Não foi possível abrir o questionário. Tenta novamente."
   },
   "ecg": {
     "toggle": "Gravar ECG",

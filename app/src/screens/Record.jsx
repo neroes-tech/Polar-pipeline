@@ -13,7 +13,9 @@ import { primeAudioContext, playSessionEndAlert } from '../lib/sessionAlert.js'
 import { activateKeepAwake, releaseKeepAwake } from '../lib/keepAwake.js'
 import { isBatteryOptimizationEnabled, requestDisableBatteryOptimization } from '../lib/batteryOptimization.js'
 import { notifyBleDisconnected, notifySessionSaved, notifySessionsSynced } from '../lib/localAlerts.js'
+import { buildFormsAutoLoginUrl, participantCodeToEmail } from '../lib/formsAutoLogin.js'
 import { Preferences } from '@capacitor/preferences'
+import { Browser } from '@capacitor/browser'
 import EcgCanvas from '../components/EcgCanvas.jsx'
 import BigButton from '../components/BigButton.jsx'
 import LanguageToggle from '../components/LanguageToggle.jsx'
@@ -178,6 +180,7 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
   // ── State (logic unchanged) ──────────────────────────────
   const [bleStatus,    setBleStatus]    = useState('idle')
   const [bleError,     setBleError]     = useState(null)
+  const [questionnaireError, setQuestionnaireError] = useState(null)
   // If App.jsx found a local session still sitting in 'recording' state
   // (Activity/WebView was torn down mid-recording, foreground service kept
   // going), start straight into the recording UI instead of the picker —
@@ -498,6 +501,22 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
     sessionModeRef.current = mode
     setSessionMode(mode)
     await startRecording()
+  }
+
+  // Opens the separate "Questionário Matinal" app already signed in as this
+  // participant — see src/lib/formsAutoLogin.js for why this is safe (short
+  // -lived signed link, verified server-side, never exposes the password).
+  async function openQuestionnaire() {
+    setQuestionnaireError(null)
+    try {
+      const email = participantCodeToEmail(participant.code)
+      if (!email) throw new Error('no_participant_email')
+      const url = await buildFormsAutoLoginUrl(email)
+      await Browser.open({ url })
+    } catch (e) {
+      console.warn('[questionnaire] failed to open:', e.message)
+      setQuestionnaireError(t('error.questionnaire_failed'))
+    }
   }
 
   async function connectBle() {
@@ -925,7 +944,23 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
                       </svg>
                     }
                   />
+                  <ModeCard
+                    onClick={openQuestionnaire}
+                    title={t('session.mode_questionnaire')}
+                    desc={t('session.mode_questionnaire_desc')}
+                    icon={
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden>
+                        <rect x="5" y="3.5" width="14" height="17" rx="2" stroke="var(--teal-2)" strokeWidth="2"/>
+                        <path d="M8.5 8.5h7M8.5 12h7M8.5 15.5h4" stroke="var(--teal-2)" strokeWidth="1.7" strokeLinecap="round"/>
+                      </svg>
+                    }
+                  />
                 </div>
+                {questionnaireError && (
+                  <p style={{ color: 'var(--error)', fontSize: '.82rem', fontWeight: 600, marginTop: 10 }}>
+                    {questionnaireError}
+                  </p>
+                )}
               </div>
             ) : (
               /* ── BLE não ligado: a ligar / erro / retry ── */
