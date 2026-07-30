@@ -36,6 +36,7 @@
     "reconnecting": "Reconnecting...",
     "error": "Connection error",
     "permission_denied": "Bluetooth permission denied",
+    "scan_blocked": "Could not scan for the band",
     "retry": "Reconnect",
     "connect_btn": "Connect band",
     "no_device_id": "Band not configured",
@@ -87,7 +88,9 @@
     "ble_unavailable": "Bluetooth not available on this device",
     "device_not_found": "Polar H10 band not found. Make sure the band is turned on and nearby.",
     "permission_denied": "The app does not have permission to use Bluetooth.",
-    "permission_hint": "Go to Settings → Apps → Neroes HRV → Permissions → Bluetooth and select Allow. Then return to the app and connect the band."
+    "permission_hint": "Go to Settings → Apps → Neroes HRV → Permissions → Bluetooth and select Allow. Then return to the app and connect the band.",
+    "scan_blocked": "This band hasn't been paired with this phone yet.",
+    "scan_blocked_hint": "Go to your phone's Settings → Bluetooth and pair the Polar H10 band directly there (like a pair of headphones). Then come back to the app and tap \"Connect band\" — from then on it connects automatically every time."
   },
   "ecg": {
     "toggle": "Record ECG",

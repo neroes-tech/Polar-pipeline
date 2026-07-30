@@ -362,10 +362,22 @@ export class PolarBle {
       })
     } catch (e) {
       const msg = (e.message || '').toLowerCase()
+      // Seen on Android 16 (Pixel 8 Pro): the scan-based picker itself gets
+      // rejected with "...has android.permission.BLUETOOTH_PRIVILEGED" even
+      // though the app holds the normal BLUETOOTH_SCAN runtime permission —
+      // an OS-level restriction on this scan API that no permission prompt
+      // can fix. A plain GATT connect (no scanning) is unaffected, so the
+      // real fix is pairing the band once via Android's own Bluetooth
+      // settings — that makes it show up in getBondedDevices() next launch,
+      // bypassing this scan path entirely. Checked before the generic
+      // 'permission' branch below, which is for an actually-revocable denial.
+      if (msg.includes('privileged')) {
+        throw new Error('scan_blocked')
+      }
       if (msg.includes('cancel') || msg.includes('denied') || msg.includes('not found')) {
         throw new Error('device_not_found')
       }
-      if (msg.includes('permission') || msg.includes('privileged')) {
+      if (msg.includes('permission')) {
         throw new Error('permission_denied')
       }
       throw e

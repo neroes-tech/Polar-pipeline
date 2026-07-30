@@ -50,7 +50,7 @@ function CheckmarkAnim() {
 // ── BLE status pill ───────────────────────────────────────────────────────────
 function BlePill({ status, error, t }) {
   const isAnimated = status === 'scanning' || status === 'connecting' || status === 'reconnecting'
-  const isError    = status === 'error' || status === 'permission_denied'
+  const isError    = status === 'error' || status === 'permission_denied' || status === 'scan_blocked'
 
   return (
     <div className={`ble-pill ${status}`} role="status" aria-live="polite">
@@ -434,7 +434,7 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
   // ── BLE disconnect watchdog — accumulate gap_s, alert if disconnected too long ──
   useEffect(() => {
     if (phase !== 'recording') return
-    const isDown = bleStatus === 'reconnecting' || bleStatus === 'error' || bleStatus === 'permission_denied'
+    const isDown = bleStatus === 'reconnecting' || bleStatus === 'error' || bleStatus === 'permission_denied' || bleStatus === 'scan_blocked'
 
     if (isDown) {
       if (!disconnectedSinceRef.current) {
@@ -506,6 +506,8 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
     } catch (e) {
       if (e.message === 'permission_denied') {
         setBleStatus('permission_denied')
+      } else if (e.message === 'scan_blocked') {
+        setBleStatus('scan_blocked')
       } else {
         const msg = e.message === 'ble_unavailable'  ? t('error.ble_unavailable')
                   : e.message === 'device_not_found' ? t('error.device_not_found')
@@ -948,7 +950,21 @@ export default function Record({ participant, onBack, recoveredCount = 0, resume
                   </div>
                 )}
 
-                {!bleScanning && bleStatus !== 'permission_denied' && (
+                {bleStatus === 'scan_blocked' && (
+                  <div style={{ background: '#FFF0F0', border: '1px solid var(--error)', borderRadius: 14, padding: '16px 18px' }}>
+                    <p style={{ color: 'var(--error)', fontWeight: 700, margin: '0 0 6px' }}>
+                      {t('error.scan_blocked')}
+                    </p>
+                    <p style={{ color: 'var(--text-3)', fontSize: '.88rem', margin: '0 0 14px', lineHeight: 1.5 }}>
+                      {t('error.scan_blocked_hint')}
+                    </p>
+                    <BigButton onClick={connectBle} variant="secondary">
+                      {t('ble.connect_btn')}
+                    </BigButton>
+                  </div>
+                )}
+
+                {!bleScanning && bleStatus !== 'permission_denied' && bleStatus !== 'scan_blocked' && (
                   <BigButton onClick={connectBle} variant="secondary">
                     {t('ble.connect_btn')}
                   </BigButton>

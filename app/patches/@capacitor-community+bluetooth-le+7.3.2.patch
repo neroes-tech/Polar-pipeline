@@ -56,6 +56,37 @@ index 711697f..7a1fa57 100644
              )
          }
          setConnectionTimeout(key, "Connection timeout.", bluetoothGatt, timeout)
+diff --git a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/DeviceScanner.kt b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/DeviceScanner.kt
+index 5584781..2b96d35 100644
+--- a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/DeviceScanner.kt
++++ b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/DeviceScanner.kt
+@@ -96,7 +96,25 @@ class DeviceScanner(
+             setTimeoutForStopScanning()
+             Logger.debug(TAG, "Start scanning.")
+             isScanning = true
+-            bluetoothLeScanner?.startScan(scanFilters, scanSettings, scanCallback)
++            // startScan() can throw synchronously instead of failing through
++            // onScanFailed — seen on Android 16, which rejects some scans
++            // with a SecurityException citing BLUETOOTH_PRIVILEGED even when
++            // the app holds BLUETOOTH_SCAN. Uncaught, this crashes the whole
++            // app (it propagates out of the Capacitor plugin dispatcher) —
++            // report it as a normal failed scan instead.
++            try {
++                bluetoothLeScanner?.startScan(scanFilters, scanSettings, scanCallback)
++            } catch (e: Exception) {
++                Logger.error(TAG, "startScan threw: ${e.localizedMessage}", e)
++                isScanning = false
++                savedCallback?.invoke(
++                    ScanResponse(
++                        false, e.localizedMessage ?: "Scan failed to start.", null
++                    )
++                )
++                savedCallback = null
++                return
++            }
+             if (showDialog) {
+                 dialogHandler = Handler(Looper.getMainLooper())
+                 showDeviceList()
 diff --git a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift b/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift
 index fce4b03..a3f17d7 100644
 --- a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift

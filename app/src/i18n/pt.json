@@ -36,6 +36,7 @@
     "reconnecting": "A religar...",
     "error": "Erro de ligação",
     "permission_denied": "Permissão de Bluetooth negada",
+    "scan_blocked": "Não foi possível procurar a banda",
     "retry": "Reconectar",
     "connect_btn": "Ligar à banda",
     "no_device_id": "Banda não configurada",
@@ -87,7 +88,9 @@
     "ble_unavailable": "Bluetooth não disponível neste dispositivo",
     "device_not_found": "Banda Polar H10 não encontrada. Confirme que a banda está ligada e próxima.",
     "permission_denied": "A app não tem permissão para usar o Bluetooth.",
-    "permission_hint": "Vai a Definições → Aplicações → Neroes HRV → Permissões → Bluetooth e seleciona Permitir. Depois volta à app e liga a banda."
+    "permission_hint": "Vai a Definições → Aplicações → Neroes HRV → Permissões → Bluetooth e seleciona Permitir. Depois volta à app e liga a banda.",
+    "scan_blocked": "Esta banda ainda não foi emparelhada com este telemóvel.",
+    "scan_blocked_hint": "Vai a Definições → Bluetooth do telemóvel e emparelha a banda Polar H10 diretamente aí (como um par de auscultadores). Depois volta à app e toca em \"Ligar à banda\" — a partir daí liga-se sempre automaticamente."
   },
   "ecg": {
     "toggle": "Gravar ECG",
