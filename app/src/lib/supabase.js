@@ -75,10 +75,10 @@ export async function signIn(email, password) {
 const SHARED_LOGIN_PASSWORD = import.meta.env.VITE_SHARED_LOGIN_PASSWORD
 
 /**
- * Resolves a simplified login field (just "01".."31", or "formador") into
+ * Resolves a simplified login field (just "00".."31", or "formador") into
  * a real email + password pair, matching how scripts/create_auth_users.py
  * actually provisioned these accounts:
- *   - "01".."31" → polar01@healme.pt.."polar31@healme.pt", using the shared
+ *   - "00".."31" → polar00@healme.pt.."polar31@healme.pt", using the shared
  *     password every one of those accounts was created with. Returns
  *     needsPassword: false — the caller must NOT show a password field.
  *   - "formador" → formador@healme.pt, its OWN real password — that account
@@ -96,7 +96,7 @@ export function resolveLoginIdentity(usernameRaw) {
 
   const digits = username.replace(/\D/g, '')
   const n = Number(digits)
-  if (digits && n >= 1 && n <= 31) {
+  if (digits && n >= 0 && n <= 31) {
     return {
       email:         `polar${String(n).padStart(2, '0')}@healme.pt`,
       needsPassword: false,

@@ -12,8 +12,9 @@ const AVATAR_COLORS = [
 ]
 
 function avatarNum(code) {
-  // "HM01" → "1", "HM22" → "22"
-  return (code.match(/\d+$/) || ['?'])[0].replace(/^0+/, '') || '?'
+  // "HM00" → "0", "HM01" → "1", "HM22" → "22"
+  const digits = code.match(/\d+$/)
+  return digits ? String(Number(digits[0])) : '?'
 }
 
 export default function ParticipantSelect({ onSelect }) {

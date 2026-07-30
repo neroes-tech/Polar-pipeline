@@ -1,3 +1,61 @@
+diff --git a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/BluetoothLe.kt b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/BluetoothLe.kt
+index 21a1ff3..0783f9b 100644
+--- a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/BluetoothLe.kt
++++ b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/BluetoothLe.kt
+@@ -463,7 +463,8 @@ class BluetoothLe : Plugin() {
+     fun connect(call: PluginCall) {
+         val device = getOrCreateDevice(call) ?: return
+         val timeout = call.getFloat("timeout", CONNECTION_TIMEOUT)!!.toLong()
+-        device.connect(timeout) { response ->
++        val autoConnect = call.getBoolean("autoConnect", false) as Boolean
++        device.connect(timeout, autoConnect) { response ->
+             run {
+                 if (response.success) {
+                     call.resolve()
+diff --git a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/Device.kt b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/Device.kt
+index 711697f..7a1fa57 100644
+--- a/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/Device.kt
++++ b/node_modules/@capacitor-community/bluetooth-le/android/src/main/java/com/capacitorjs/community/plugins/bluetoothle/Device.kt
+@@ -316,9 +316,15 @@ class Device(
+      * - connect to gatt server
+      * - discover services
+      * - request MTU
++     *
++     * autoConnect=true tells the OS Bluetooth stack itself to keep retrying
++     * silently whenever the device comes back in range, independent of app
++     * process/WebView state — used for reconnecting to an already-known
++     * device instead of a JS-driven retry loop (which stalls whenever the
++     * WebView is backgrounded and its timers get throttled).
+      */
+     fun connect(
+-        timeout: Long, callback: (CallbackResponse) -> Unit
++        timeout: Long, autoConnect: Boolean, callback: (CallbackResponse) -> Unit
+     ) {
+         val key = "connect"
+         callbackMap[key] = callback
+@@ -332,7 +338,7 @@ class Device(
+             initializeCallbacksHandlerThread()
+             bluetoothGatt = device.connectGatt(
+                 context,
+-                false,
++                autoConnect,
+                 gattCallback,
+                 BluetoothDevice.TRANSPORT_LE,
+                 BluetoothDevice.PHY_OPTION_NO_PREFERRED,
+@@ -340,11 +346,11 @@ class Device(
+             )
+         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+             bluetoothGatt = device.connectGatt(
+-                context, false, gattCallback, BluetoothDevice.TRANSPORT_LE
++                context, autoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE
+             )
+         } else {
+             bluetoothGatt = device.connectGatt(
+-                context, false, gattCallback
++                context, autoConnect, gattCallback
+             )
+         }
+         setConnectionTimeout(key, "Connection timeout.", bluetoothGatt, timeout)
 diff --git a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift b/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift
 index fce4b03..a3f17d7 100644
 --- a/node_modules/@capacitor-community/bluetooth-le/ios/Plugin/DeviceManager.swift

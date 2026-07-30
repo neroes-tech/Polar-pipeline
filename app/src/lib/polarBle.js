@@ -11,6 +11,17 @@ import { Preferences } from '@capacitor/preferences'
 // ourselves the first time a connection succeeds.
 const DEVICE_ID_KEY = 'neroes_ble_device_id'
 
+// A JS-driven setTimeout retry loop stalls whenever the WebView is
+// backgrounded — Chromium throttles self-scheduled timers the same way it
+// throttled the recording notification (see notificationTicker.js). Android
+// autoConnect=true (patched into the plugin's connectGatt call, see
+// patches/@capacitor-community+bluetooth-le+7.3.2.patch) hands reconnection
+// to the OS Bluetooth stack itself, which keeps retrying silently in the
+// background with no JS timer involved. A long timeout here is what a real
+// "always connected" band needs — the default 10s timeout would otherwise
+// force-close the pending native connection attempt and lose that benefit.
+const NATIVE_AUTOCONNECT_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
 // ── HRM (Heart Rate Measurement) ─────────────────────────────────────────────
 const HRM_SERVICE     = '0000180d-0000-1000-8000-00805f9b34fb'
 const HRM_CHAR        = '00002a37-0000-1000-8000-00805f9b34fb'
@@ -400,14 +411,54 @@ export class PolarBle {
     // of that silently fails, which used to fall through to the manual
     // device picker — clear it first.
     try { await BleClient.disconnect(deviceId) } catch (_) {}
-    await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect())
-    await BleClient.startNotifications(
-      this._deviceId, HRM_SERVICE, HRM_CHAR,
-      (dv) => this._onHrm(parseHrmNotification(dv))
-    )
-    this._reconnecting     = false
-    this._reconnectAttempt = 0
-    this._onStatus('connected')
+    try {
+      await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect())
+      await BleClient.startNotifications(
+        this._deviceId, HRM_SERVICE, HRM_CHAR,
+        (dv) => this._onHrm(parseHrmNotification(dv))
+      )
+      this._reconnecting     = false
+      this._reconnectAttempt = 0
+      this._onStatus('connected')
+    } catch (_) {
+      // Band isn't in range right now (still on, but in a bag/pocket a few
+      // metres away). A band already paired to this phone must end up
+      // connected on its own — never fall through to the interactive
+      // picker here, hand off to the OS's own autoConnect instead.
+      this._onStatus('reconnecting')
+      await this._reconnectNativeAuto()
+    }
+  }
+
+  /**
+   * Reconnect to the current _deviceId via the OS's own autoConnect
+   * mechanism (Android — see NATIVE_AUTOCONNECT_TIMEOUT_MS above) instead
+   * of a JS setTimeout retry loop, which stalls in the background. Safe to
+   * call repeatedly — each call re-registers the disconnect listener too.
+   */
+  async _reconnectNativeAuto() {
+    if (this._stopReconnecting || !this._deviceId) { this._reconnecting = false; return }
+    this._reconnecting = true
+    try {
+      await BleClient.connect(this._deviceId, () => this._handleNativeDisconnect(), {
+        autoConnect: true,
+        timeout:     NATIVE_AUTOCONNECT_TIMEOUT_MS,
+      })
+      await BleClient.startNotifications(
+        this._deviceId, HRM_SERVICE, HRM_CHAR,
+        (dv) => this._onHrm(parseHrmNotification(dv))
+      )
+      this._reconnecting     = false
+      this._reconnectAttempt = 0
+      this._onStatus('connected')
+      this._onReconnected()
+    } catch (_) {
+      // The native attempt itself failed to even start (e.g. Bluetooth
+      // adapter off) — fall back to the short-interval JS retry loop rather
+      // than leaving the band disconnected with nothing retrying at all.
+      this._onStatus('reconnecting')
+      this._scheduleNativeReconnect()
+    }
   }
 
   async _startEcgNative(onSample) {
@@ -467,13 +518,15 @@ export class PolarBle {
     this._reconnectAttempt = 0
     this._onStatus('reconnecting')
     this._onDisconnect()
-    this._scheduleNativeReconnect()
+    this._reconnectNativeAuto()
   }
 
-  // Retries forever (band in a pocket/bag can be out of range for minutes at
-  // a time during a long field session) with capped exponential backoff, so
-  // a single failed attempt never leaves the band silently disconnected —
-  // the old behaviour gave up after one try and required reopening the app.
+  // Fallback only — used when the native autoConnect attempt itself throws
+  // synchronously (e.g. adapter off). Retries forever (band in a pocket/bag
+  // can be out of range for minutes at a time during a long field session)
+  // with capped exponential backoff, so a single failed attempt never
+  // leaves the band silently disconnected — the old behaviour gave up after
+  // one try and required reopening the app.
   // On success, fires onReconnected() so the caller can resume the ECG
   // stream, which does NOT survive a GATT disconnect on its own.
   _scheduleNativeReconnect() {
