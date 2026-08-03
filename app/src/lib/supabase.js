@@ -9,10 +9,45 @@ import { withTimeout } from './withTimeout.js'
 // synchronously (from memory) while writes still persist to SharedPreferences.
 const _cache = {}
 
+// The Capacitor native bridge can stall — observed on the field phone
+// alongside a bridge-level "Cannot read properties of undefined (reading
+// 'triggerEvent')" error at startup. A stalled bridge call never rejects,
+// and supabase-js AWAITS storage.setItem() while saving a session, so a
+// hung Preferences.set() left signInWithPassword() pending forever: the
+// user was already authenticated server-side, but the app sat on
+// "A entrar..." indefinitely. No network timeout could help — the hang is
+// after the HTTP call, on the native side.
+//
+// So: never let the auth flow await the bridge. The in-memory cache is
+// updated synchronously (that's what getItem reads, so the session is
+// immediately usable), and the native write is fire-and-forget with a
+// timeout. Worst case a write is lost and the participant signs in again
+// next launch — infinitely better than a frozen app mid-activity.
+const BRIDGE_TIMEOUT_MS = 5000
+
+function bridgeCall(label, promiseFactory) {
+  return Promise.race([
+    Promise.resolve().then(promiseFactory),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error(`bridge_timeout:${label}`)), BRIDGE_TIMEOUT_MS)
+    ),
+  ])
+}
+
 const CapPrefsStorage = {
-  getItem:    (key)        => Promise.resolve(_cache[key] ?? null),
-  async setItem(key, value) { _cache[key] = value; await Preferences.set({ key, value }) },
-  async removeItem(key)     { delete _cache[key];  await Preferences.remove({ key }) },
+  getItem: (key) => Promise.resolve(_cache[key] ?? null),
+  setItem(key, value) {
+    _cache[key] = value
+    bridgeCall('set', () => Preferences.set({ key, value }))
+      .catch(e => console.warn('[supabase] persist failed for', key, '—', e?.message))
+    return Promise.resolve()
+  },
+  removeItem(key) {
+    delete _cache[key]
+    bridgeCall('remove', () => Preferences.remove({ key }))
+      .catch(e => console.warn('[supabase] remove failed for', key, '—', e?.message))
+    return Promise.resolve()
+  },
 }
 
 // ── Global fetch timeout for EVERY supabase HTTP call ───────────────────────
@@ -61,20 +96,33 @@ export const supabase = createClient(
 // App.jsx subscribes to onAuthStateChange before this resolves (React useEffect
 // runs before native Preferences.keys() returns), so INITIAL_SESSION always fires
 // into an active subscriber.
+// Every bridge call here is time-bounded: a stalled Preferences.keys()/get()
+// used to mean auth.initialize() was never reached at all, leaving the app
+// stuck on its loading screen with no way forward. Failing the preload just
+// means no cached session is found — the participant signs in again, which
+// is a working app rather than a frozen one.
 ;(async () => {
   try {
-    const { keys } = await Preferences.keys()
+    const { keys } = await bridgeCall('keys', () => Preferences.keys())
     const authKeys = keys.filter(k => k.startsWith('sb-'))
     await Promise.all(authKeys.map(async key => {
-      const { value } = await Preferences.get({ key })
-      if (value) _cache[key] = value
+      try {
+        const { value } = await bridgeCall('get', () => Preferences.get({ key }))
+        if (value) _cache[key] = value
+      } catch (e) {
+        console.warn('[supabase] preload skipped', key, '—', e?.message)
+      }
     }))
     console.log('[supabase] cache ready —', Object.keys(_cache).length, 'auth key(s) loaded')
   } catch (e) {
     console.warn('[supabase] Preferences pre-load failed:', e?.message ?? String(e))
   }
-  await supabase.auth.initialize()
-  console.log('[supabase] auth initialized')
+  try {
+    await supabase.auth.initialize()
+    console.log('[supabase] auth initialized')
+  } catch (e) {
+    console.warn('[supabase] auth initialize failed:', e?.message ?? String(e))
+  }
 })()
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

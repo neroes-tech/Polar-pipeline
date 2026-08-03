@@ -94,19 +94,28 @@ export default function App() {
       // instead of unconditionally closing it out as "done" — the whole
       // point of surviving in the pyramid/desert is picking back up where
       // it left off, not silently starting a fresh, disconnected session.
+      // Both SQLite steps below are time-bounded. A .catch() alone was not
+      // enough: a stalled plugin call never rejects, so it hung here forever
+      // — the participant was already signed in and identified, yet the app
+      // never left the spinner. Proven on the field phone: logs stopped
+      // dead right after "participant = HM02". Resuming an interrupted
+      // session and tidying up orphans are both best-effort niceties;
+      // neither is worth blocking a participant from recording.
       let resumable = null
       if (p) {
-        const orphans = await getOrphanedSessions().catch(() => [])
+        const orphans = await withTimeout(getOrphanedSessions(), 5000, 'orphans')
+          .catch(e => { console.warn('[App] getOrphanedSessions:', e?.message); return [] })
         resumable = orphans.find(o => o.participant_id === p.id) || null
       }
 
       // Any OTHER orphaned session (a stale one from a different participant,
       // or a genuine leftover the app couldn't resume) still gets finalized
       // as before — this is the crash-safety net, unchanged.
-      const recovered = await recoverOrphanedSessions(resumable?.id ?? null).catch(e => {
-        console.warn('[App] recoverOrphanedSessions failed:', e.message)
-        return 0
-      })
+      const recovered = await withTimeout(recoverOrphanedSessions(resumable?.id ?? null), 8000, 'recover')
+        .catch(e => {
+          console.warn('[App] recoverOrphanedSessions failed:', e?.message)
+          return 0
+        })
       if (recovered > 0) setRecoveredCount(recovered)
 
       if (p) {
