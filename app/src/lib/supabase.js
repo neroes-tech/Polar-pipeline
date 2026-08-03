@@ -15,6 +15,30 @@ const CapPrefsStorage = {
   async removeItem(key)     { delete _cache[key];  await Preferences.remove({ key }) },
 }
 
+// ── Global fetch timeout for EVERY supabase HTTP call ───────────────────────
+// fetch has no timeout of its own: a connection that stalls (rather than
+// fails) leaves the promise pending forever. That's bad for any call, but
+// fatal for auth ones — supabase-js serializes auth operations through an
+// internal lock, so ONE hung sign-in/refresh request blocks every later auth
+// call (they queue on the lock and never even reach the network). Observed
+// live on the field phone: "A entrar..." spinning for minutes, UI alive
+// (language toggle worked), our 15s UI-level timeout unable to help because
+// the next attempt just queued behind the same stuck lock. Aborting at the
+// fetch layer releases the lock, so retries genuinely retry.
+const FETCH_TIMEOUT_MS = 15000
+
+function fetchWithTimeout(input, init = {}) {
+  const ctrl = new AbortController()
+  const timer = setTimeout(() => ctrl.abort(new DOMException('fetch timeout', 'AbortError')), FETCH_TIMEOUT_MS)
+  // Preserve a caller-provided signal (manual chaining — AbortSignal.any
+  // needs Chrome 116+, too new to rely on across participant phones).
+  if (init.signal) {
+    if (init.signal.aborted) ctrl.abort(init.signal.reason)
+    else init.signal.addEventListener('abort', () => ctrl.abort(init.signal.reason), { once: true })
+  }
+  return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(timer))
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 // skipAutoInitialize: true — we call auth.initialize() ourselves AFTER the cache
 // is populated from Preferences, so the first __loadSession() already has the token.
@@ -22,6 +46,7 @@ export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
   {
+    global: { fetch: fetchWithTimeout },
     auth: {
       storage:            CapPrefsStorage,
       persistSession:     true,
