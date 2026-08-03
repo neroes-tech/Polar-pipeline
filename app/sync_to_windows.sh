@@ -31,10 +31,14 @@ echo "════════════════════════�
 echo ""
 
 # ── Step 1: Web build ─────────────────────────────────────────────────────────
-echo "▶ [1/3] Building web assets (npm run build)..."
+# build:native, NOT build — the plain build embeds a PWA service worker, which
+# in a native app precaches the JS bundle inside app data (surviving APK
+# updates, so the app keeps running old code) and stalls the participants
+# query forever. See vite.config.js for the full story.
+echo "▶ [1/3] Building web assets (npm run build:native)..."
 cd "$SCRIPT_DIR"
-npm run build --silent
-echo "  ✓ dist/ ready"
+npm run build:native --silent
+echo "  ✓ dist/ ready (no service worker)"
 
 # ── Step 2: Capacitor sync ────────────────────────────────────────────────────
 echo ""
