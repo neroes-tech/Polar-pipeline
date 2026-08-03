@@ -100,8 +100,8 @@ export default function Login() {
     setError(null)
     try {
       await signIn(identity.email, needsPassword ? password : identity.password)
-    } catch (_) {
-      setError(t('auth.error_invalid'))
+    } catch (e) {
+      setError(e?.message === 'sign_in_timeout' ? t('auth.error_network') : t('auth.error_invalid'))
       setLoading(false)
     }
   }

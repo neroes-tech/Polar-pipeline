@@ -15,6 +15,7 @@
     "show_password": "Show password",
     "hide_password": "Hide password",
     "error_invalid": "Incorrect user or password",
+    "error_network": "No internet connection. Check your network and try again.",
     "security_badge": "Secure authentication · Supabase"
   },
   "lang": {

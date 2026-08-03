@@ -15,6 +15,7 @@
     "show_password": "Mostrar palavra-passe",
     "hide_password": "Esconder palavra-passe",
     "error_invalid": "Utilizador ou palavra-passe incorretos",
+    "error_network": "Sem ligação à internet. Verifica a rede e tenta novamente.",
     "security_badge": "Autenticação segura · Supabase"
   },
   "lang": {

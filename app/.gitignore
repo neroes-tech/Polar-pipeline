@@ -43,3 +43,5 @@ ios/App/App/*
 
 # Capacitor cache
 .capacitor/
+.vercel
+.env*

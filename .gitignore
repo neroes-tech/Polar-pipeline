@@ -11,6 +11,9 @@ app/.env
 app/.env.local
 app/.env.*.local
 
+# Vercel CLI project link + pulled env vars (contains real secrets)
+.vercel/
+
 # Keystore Android — vive APENAS na máquina Windows local
 app/android/keystore.properties
 neroes-release-keys/

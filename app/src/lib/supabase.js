@@ -66,8 +66,22 @@ function logSupabaseError(context, err) {
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
+// A first-ever login on a device has no cached session to fall back on —
+// it genuinely needs a live network round-trip. Without this timeout, weak
+// or absent connectivity (a real risk mid-activity, in the field) left the
+// login screen stuck on its loading spinner forever: signInWithPassword()
+// has no timeout of its own, so a stalled connection never rejects and the
+// button's try/catch never runs.
+const SIGN_IN_TIMEOUT_MS = 15000
+
 export async function signIn(email, password) {
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('sign_in_timeout')), SIGN_IN_TIMEOUT_MS)
+  )
+  const { data, error } = await Promise.race([
+    supabase.auth.signInWithPassword({ email, password }),
+    timeout,
+  ])
   if (error) throw error
   return data
 }
@@ -75,12 +89,15 @@ export async function signIn(email, password) {
 const SHARED_LOGIN_PASSWORD = import.meta.env.VITE_SHARED_LOGIN_PASSWORD
 
 /**
- * Resolves a simplified login field (just "00".."31", or "formador") into
+ * Resolves a simplified login field (just "00".."60", or "formador") into
  * a real email + password pair, matching how scripts/create_auth_users.py
  * actually provisioned these accounts:
- *   - "00".."31" → polar00@healme.pt.."polar31@healme.pt", using the shared
+ *   - "00".."60" → polar00@healme.pt.."polar60@healme.pt", using the shared
  *     password every one of those accounts was created with. Returns
  *     needsPassword: false — the caller must NOT show a password field.
+ *     The range is wider than the bands actually in use (34 as of this
+ *     write) on purpose — Supabase will simply reject sign-in for any
+ *     number that doesn't have a real account yet.
  *   - "formador" → formador@healme.pt, its OWN real password — that account
  *     was set up separately and deliberately keeps a real password, so
  *     needsPassword: true.
@@ -94,9 +111,12 @@ export function resolveLoginIdentity(usernameRaw) {
     return { email: 'formador@healme.pt', needsPassword: true }
   }
 
+  // Upper bound kept generously above the current highest band (34, as of
+  // this write) so adding future bands numbered up to 60 needs only a
+  // Supabase-side account (scripts/create_auth_users.py) — no app rebuild.
   const digits = username.replace(/\D/g, '')
   const n = Number(digits)
-  if (digits && n >= 0 && n <= 31) {
+  if (digits && n >= 0 && n <= 60) {
     return {
       email:         `polar${String(n).padStart(2, '0')}@healme.pt`,
       needsPassword: false,
