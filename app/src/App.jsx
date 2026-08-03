@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Capacitor } from '@capacitor/core'
 import { supabase, getCurrentParticipant, signOut, uploadSessionRecord, uploadEcgSamples, clearLocalAuth } from './lib/supabase.js'
 import { initLocalStore, recoverOrphanedSessions, getOrphanedSessions, syncPending, clearAllLocalSessions } from './lib/localSessionStore.js'
@@ -76,7 +76,23 @@ export default function App() {
   const [recoveredCount, setRecoveredCount] = useState(0)
   const [resumeSession,  setResumeSession]  = useState(null)  // an in-progress local session to resume live, instead of closing it out
 
+  // A stored session makes INITIAL_SESSION fire with a user the moment the app
+  // opens, which starts this. If the participant then signs in (very common:
+  // the loading screen is still up, or they tapped "Sair" first), SIGNED_IN
+  // starts it a SECOND time, concurrently. Both then hit the same SQLite open
+  // and the app wedged — the field freeze, reproduced in release logs as
+  // "INITIAL_SESSION polar00" followed by "SIGNED_IN polar02" and no further
+  // progress. Only ever let one run at a time; the newer sign-in wins because
+  // it re-reads the session anyway.
+  // Serialized, not dropped: a second call is queued and runs right after the
+  // first, so signing in as a different participant while a stale session is
+  // still being loaded ends up on the RIGHT account.
+  const loadingRef = useRef(false)
+  const rerunRef   = useRef(false)
+
   async function loadParticipant() {
+    if (loadingRef.current) { rerunRef.current = true; return }
+    loadingRef.current = true
     setScreen('loading')
     try {
       // Time-bounded: this gates the loading screen, and the SQLite plugin
@@ -84,7 +100,15 @@ export default function App() {
       // won't open is bad (sessions can't be saved locally) but silently
       // freezing the app on launch is worse — let it fall through to the
       // catch and at least reach a usable screen.
+      // Deliberately NOT fatal. The local store only exists to make recording
+      // crash-safe; if it can't open, sessions still record and upload live.
+      // It used to be awaited bare here, so a database that refused to open
+      // (seen in the field: "CapacitorSQLitePlugin: null" on every launch
+      // after the first) threw straight past everything below and bounced the
+      // participant back to the login screen forever — locked out of an app
+      // whose only real problem was an optional cache.
       await withTimeout(initLocalStore(), 10000, 'init_local_store')
+        .catch(e => console.warn('[App] local store unavailable:', e?.message))
       const p = await getCurrentParticipant()
 
       // If the app's Activity/WebView got torn down mid-recording (Android
@@ -127,8 +151,15 @@ export default function App() {
       } else {
         setScreen('login')
       }
-    } catch (_) {
+    } catch (e) {
+      console.warn('[App] loadParticipant failed:', e?.message ?? String(e))
       setScreen('login')
+    } finally {
+      loadingRef.current = false
+      if (rerunRef.current) {
+        rerunRef.current = false
+        loadParticipant()
+      }
     }
   }
 
@@ -141,6 +172,7 @@ export default function App() {
     // onAuthStateChange fires immediately with INITIAL_SESSION on first render —
     // handles auto-login (persisted session) without a separate getSession() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('[auth-event]', event, session?.user?.email ?? 'none')
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
         if (session?.user) {
           loadParticipant()

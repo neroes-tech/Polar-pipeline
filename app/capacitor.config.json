@@ -14,8 +14,9 @@
   },
   "android": {
     "allowMixedContent": false,
-    "loggingBehavior": "debug",
-    "minWebViewVersion": 87
+    "loggingBehavior": "production",
+    "minWebViewVersion": 87,
+    "webContentsDebuggingEnabled": true
   },
   "ios": {
     "contentInset": "automatic"

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { signIn, resolveLoginIdentity } from '../lib/supabase.js'
 import LanguageToggle from '../components/LanguageToggle.jsx'
@@ -93,6 +93,16 @@ export default function Login() {
   const identity      = resolveLoginIdentity(username)
   const needsPassword = identity?.needsPassword ?? false
 
+  // Last-resort safety net. On success this screen just waits for App to
+  // navigate (via onAuthStateChange) — so anything that wedges App leaves the
+  // participant staring at "A entrar..." with no way out, which is precisely
+  // what happened in the field. If we're still mounted well after a sign-in
+  // that the server accepted, restart the WebView: the session is already
+  // stored, so a fresh launch takes the single clean startup path and lands on
+  // the recording screen. Cleared on unmount, i.e. whenever App does navigate.
+  const rescueTimerRef = useRef(null)
+  useEffect(() => () => clearTimeout(rescueTimerRef.current), [])
+
   async function handleSubmit(e) {
     e.preventDefault()
     if (!identity || (needsPassword && !password)) return
@@ -100,6 +110,10 @@ export default function Login() {
     setError(null)
     try {
       await signIn(identity.email, needsPassword ? password : identity.password)
+      rescueTimerRef.current = setTimeout(() => {
+        console.warn('[login] signed in but app never navigated — reloading to recover')
+        location.reload()
+      }, 8000)
     } catch (e) {
       setError(e?.message === 'sign_in_timeout' ? t('auth.error_network') : t('auth.error_invalid'))
       setLoading(false)

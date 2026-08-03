@@ -74,10 +74,32 @@ let _readyP  = null    // init promise (dedup concurrent initLocalStore() calls)
 async function _openNative() {
   const { CapacitorSQLite, SQLiteConnection } = await import('@capacitor-community/sqlite')
   _sqlite = new SQLiteConnection(CapacitorSQLite)
-  const { result: exists } = await _sqlite.isConnection(DB_NAME, false)
-  _db = exists
-    ? await _sqlite.retrieveConnection(DB_NAME, false)
-    : await _sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+
+  // Reconcile the plugin's connection registry with reality first. After the
+  // app process restarts, the native side can still believe a connection for
+  // this database exists; createConnection() then fails with the useless
+  // "CapacitorSQLitePlugin: null", which is exactly what broke every launch
+  // after the first one on the field phone. This is the plugin's own
+  // prescribed remedy and is safe to call unconditionally.
+  try { await _sqlite.checkConnectionsConsistency() } catch (_) {}
+
+  async function connect() {
+    const { result: exists } = await _sqlite.isConnection(DB_NAME, false)
+    return exists
+      ? await _sqlite.retrieveConnection(DB_NAME, false)
+      : await _sqlite.createConnection(DB_NAME, false, 'no-encryption', 1, false)
+  }
+
+  try {
+    _db = await connect()
+  } catch (e) {
+    // Second chance: drop whatever half-registered connection is in the way
+    // and build a fresh one.
+    console.warn('[localStore] connect failed, retrying clean:', e?.message)
+    try { await _sqlite.closeConnection(DB_NAME, false) } catch (_) {}
+    _db = await connect()
+  }
+
   await _db.open()
   await _db.execute(SCHEMA)
 }
@@ -99,9 +121,29 @@ function _webSave(all) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 
+// Opening the DB is memoized so concurrent callers share one attempt — but a
+// failed/stalled attempt must NOT be cached, or every later call inherits the
+// same dead promise and local storage is broken for the rest of the app's
+// life. That is exactly what happened in the field: the first open stalled and
+// the app could never recover, not even after a successful login.
+const OPEN_TIMEOUT_MS = 8000
+
 export async function initLocalStore() {
   if (!_readyP) {
-    _readyP = isNative() ? _openNative() : Promise.resolve()
+    _readyP = (isNative()
+      ? Promise.race([
+          _openNative(),
+          new Promise((_, reject) =>
+            setTimeout(() => reject(new Error('sqlite_open_timeout')), OPEN_TIMEOUT_MS)
+          ),
+        ])
+      : Promise.resolve()
+    ).catch(e => {
+      // Let the next caller try again from scratch instead of being handed
+      // this failure forever.
+      _readyP = null
+      throw e
+    })
   }
   return _readyP
 }

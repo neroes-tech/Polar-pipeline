@@ -117,11 +117,39 @@ export const supabase = createClient(
   } catch (e) {
     console.warn('[supabase] Preferences pre-load failed:', e?.message ?? String(e))
   }
+  // initialize() must be time-bounded, and a timeout has to be treated as
+  // fatal-but-recoverable rather than ignored.
+  //
+  // Why: with a stored session that can't be refreshed, initialize() goes
+  // into GoTrue's internal refresh-retry loop and its promise never settles.
+  // signInWithPassword() awaits that very same promise before it does
+  // anything, so EVERY later login attempt hangs before touching the
+  // network — the exact "A entrar..." freeze seen in the field, which is
+  // why it only ever struck phones that had signed in before and always
+  // went away after clearing app data. Awaiting it here can't unblock the
+  // internal promise either, so the only reliable escape is to drop the
+  // poisoned tokens and start clean.
+  const INIT_TIMEOUT_MS = 8000
+  const RECOVERY_FLAG = 'neroes_auth_recovery_done'
   try {
-    await supabase.auth.initialize()
+    await withTimeout(supabase.auth.initialize(), INIT_TIMEOUT_MS, 'auth_init')
     console.log('[supabase] auth initialized')
   } catch (e) {
     console.warn('[supabase] auth initialize failed:', e?.message ?? String(e))
+    // Guard against a reload loop: only ever self-heal once per app launch.
+    if (!sessionStorage.getItem(RECOVERY_FLAG)) {
+      sessionStorage.setItem(RECOVERY_FLAG, '1')
+      console.warn('[supabase] clearing stored auth and reloading to recover')
+      try {
+        for (const key of Object.keys(_cache).filter(k => k.startsWith('sb-'))) {
+          delete _cache[key]
+          bridgeCall('remove', () => Preferences.remove({ key })).catch(() => {})
+        }
+      } catch (_) {}
+      // Give the removals a moment, then restart with empty auth storage —
+      // the participant signs in again, which always works from clean.
+      setTimeout(() => location.reload(), 300)
+    }
   }
 })()
 
