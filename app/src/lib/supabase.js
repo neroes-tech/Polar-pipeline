@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js'
 import { Preferences } from '@capacitor/preferences'
+import { withTimeout } from './withTimeout.js'
 
 // ── In-memory cache for auth session ─────────────────────────────────────────
 // Every call to supabase.auth.getSession() → __loadSession() → storage.getItem().
@@ -75,13 +76,11 @@ function logSupabaseError(context, err) {
 const SIGN_IN_TIMEOUT_MS = 15000
 
 export async function signIn(email, password) {
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('sign_in_timeout')), SIGN_IN_TIMEOUT_MS)
-  )
-  const { data, error } = await Promise.race([
+  const { data, error } = await withTimeout(
     supabase.auth.signInWithPassword({ email, password }),
-    timeout,
-  ])
+    SIGN_IN_TIMEOUT_MS,
+    'sign_in'
+  )
   if (error) throw error
   return data
 }
@@ -146,18 +145,29 @@ const PARTICIPANT_CACHE_KEY = 'neroes_participant_cache'
  * bubbled up through App.jsx's loadParticipant() and forced the login
  * screen, skipping the whole resume-session flow (which never even got a
  * chance to run) even though the session was perfectly valid on disk.
+ *
+ * The query is time-bounded for the same reason: App.jsx awaits this while
+ * showing its loading screen, so a request that stalls rather than fails
+ * froze the app there indefinitely — with a valid cached participant sitting
+ * right there, unused. On timeout we fall through to that cache.
  */
+const PARTICIPANT_FETCH_TIMEOUT_MS = 10000
+
 export async function getCurrentParticipant() {
   try {
     const { data: { session } } = await supabase.auth.getSession()
     const user = session?.user
     if (!user) return null
 
-    const { data, error } = await supabase
-      .from('participants')
-      .select('id, code, name, device_id')
-      .eq('auth_user_id', user.id)
-      .single()
+    const { data, error } = await withTimeout(
+      supabase
+        .from('participants')
+        .select('id, code, name, device_id')
+        .eq('auth_user_id', user.id)
+        .single(),
+      PARTICIPANT_FETCH_TIMEOUT_MS,
+      'participant_fetch'
+    )
     if (error || !data) throw error || new Error('participant not found')
 
     // Cache for the next launch, in case that one happens offline.

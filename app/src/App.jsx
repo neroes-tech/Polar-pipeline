@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core'
 import { supabase, getCurrentParticipant, signOut, uploadSessionRecord, uploadEcgSamples, clearLocalAuth } from './lib/supabase.js'
 import { initLocalStore, recoverOrphanedSessions, getOrphanedSessions, syncPending, clearAllLocalSessions } from './lib/localSessionStore.js'
 import { notifySessionsSynced } from './lib/localAlerts.js'
+import { withTimeout } from './lib/withTimeout.js'
 import Login from './screens/Login.jsx'
 import Record from './screens/Record.jsx'
 
@@ -78,7 +79,12 @@ export default function App() {
   async function loadParticipant() {
     setScreen('loading')
     try {
-      await initLocalStore()
+      // Time-bounded: this gates the loading screen, and the SQLite plugin
+      // bridge can stall without ever rejecting. A local session store that
+      // won't open is bad (sessions can't be saved locally) but silently
+      // freezing the app on launch is worse — let it fall through to the
+      // catch and at least reach a usable screen.
+      await withTimeout(initLocalStore(), 10000, 'init_local_store')
       const p = await getCurrentParticipant()
 
       // If the app's Activity/WebView got torn down mid-recording (Android
